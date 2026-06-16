@@ -54,10 +54,10 @@ Rows without a valid pitch number (1–1000) are excluded.
 ### Chart 2 — Result heatmap
 
 - **Y-axis (bucketed):** one row per `Result` value for the selected pitcher, ordered by frequency.
-- **X-axis (continuous):** pitch number from 1 to 1000. Each pitch is plotted at its exact `Pitch #` position (not bucketed).
-- **Color:** a mark at `(pitch #, result)` for each qualifying play.
+- **X-axis (continuous):** pitch number from 1 to 1000 at the bubble's horizontal position.
+- **Bubbles:** circles labeled with the exact pitch number for each play.
 
-Rendered on a 1000px-wide canvas mapped 1:1 to the pitch number scale. The `Diff` field is not used.
+Rendered on a 1000px-wide canvas. The `Diff` field is not used.
 
 ### Chart 3 — Pitch spiral
 
@@ -65,10 +65,11 @@ Shows **all pitch history** for the selected pitcher.
 
 | Element | Behavior |
 | --- | --- |
-| Angular position | `Pitch #` mapped to a circle: 0/1000 at the top, increasing clockwise (500 at bottom). |
+| Angular position | Based on `Pitch #` compass position, rotating further clockwise as pitches get more recent. |
 | Radial position | Oldest pitch near the center; each later pitch is placed farther out. |
-| Connectors | Quadratic curves link each pitch to the chronologically previous pitch, with a control point interpolated between their polar positions. |
-| Highlight | The most recent pitch is drawn larger in green. |
+| Connectors | Outward-bulging cubic curves link each pitch to the chronologically previous pitch. |
+| Labels | Each point shows its pitch number; the most recent pitch is highlighted in green. |
+| Zoom | Scroll over the chart to zoom in or out. |
 
 Guide labels appear at 0/1000, 250, 500, and 750 on the outer ring. Chronological order uses the `Play` field.
 

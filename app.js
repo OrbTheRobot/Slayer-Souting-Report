@@ -3,10 +3,14 @@ import { SHEET_CONFIG, getSheetCsvUrl } from './config.js';
 const PITCH_MIN = 1;
 const PITCH_MAX = 1000;
 const LAST_PITCH_COUNT = 10;
-const HEATMAP_ROW_HEIGHT = 22;
+const HEATMAP_ROW_HEIGHT = 40;
+const HEATMAP_BUBBLE_RADIUS = 15;
 const SPIRAL_CANVAS_SIZE = 560;
-const SPIRAL_MIN_RADIUS = 0.1;
-const SPIRAL_MAX_RADIUS = 0.44;
+const SPIRAL_MIN_RADIUS = 0.06;
+const SPIRAL_MAX_RADIUS = 0.46;
+const SPIRAL_CONNECTOR_BULGE = 0.14;
+const SPIRAL_ZOOM_MIN = 0.6;
+const SPIRAL_ZOOM_MAX = 8;
 const TWO_PI = Math.PI * 2;
 
 const pitcherSelect = document.getElementById('pitcher-select');
@@ -255,7 +259,7 @@ function getResultRows(rows) {
 function renderResultHeatmap(rows) {
   const card = createChartCard(
     'Result heatmap',
-    'Each row is a result type. The horizontal axis is pitch number from 1 to 1000.',
+    'Each row is a result type. Bubbles show exact pitch numbers on the 1–1000 scale.',
   );
   card.classList.add('chart-card--wide');
 
@@ -310,11 +314,23 @@ function renderResultHeatmap(rows) {
       return;
     }
 
-    const x = pitchNumber - 1;
-    const y = rowIndex * HEATMAP_ROW_HEIGHT;
+    const x = pitchNumber;
+    const y = rowIndex * HEATMAP_ROW_HEIGHT + HEATMAP_ROW_HEIGHT / 2;
 
+    context.beginPath();
     context.fillStyle = '#4f8cff';
-    context.fillRect(x, y + 1, 1, HEATMAP_ROW_HEIGHT - 2);
+    context.arc(x, y, HEATMAP_BUBBLE_RADIUS, 0, TWO_PI);
+    context.fill();
+
+    context.strokeStyle = 'rgba(42, 52, 65, 0.95)';
+    context.lineWidth = 1.5;
+    context.stroke();
+
+    context.fillStyle = '#e8edf2';
+    context.font = '600 10px "Segoe UI", system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(String(pitchNumber), x, y);
   });
 
   canvasWrap.appendChild(canvas);
@@ -339,18 +355,6 @@ function pitchNumberToAngle(pitchNumber) {
   return normalized * TWO_PI;
 }
 
-function interpolateAngleClockwise(fromAngle, toAngle, t) {
-  let delta = toAngle - fromAngle;
-  while (delta < 0) {
-    delta += TWO_PI;
-  }
-  while (delta > TWO_PI) {
-    delta -= TWO_PI;
-  }
-
-  return (fromAngle + delta * t) % TWO_PI;
-}
-
 function polarToCanvas(angle, radiusFraction, center, maxRadius) {
   const radius = radiusFraction * maxRadius;
   return {
@@ -366,11 +370,10 @@ function buildSpiralPoints(pitchRows, center, maxRadius) {
   const count = chronological.length;
 
   return chronological.map((entry, index) => {
-    const radiusFraction = count === 1
-      ? SPIRAL_MAX_RADIUS
-      : SPIRAL_MIN_RADIUS
-        + (index / (count - 1)) * (SPIRAL_MAX_RADIUS - SPIRAL_MIN_RADIUS);
-    const angle = pitchNumberToAngle(entry.pitchNumber);
+    const progress = count === 1 ? 1 : index / (count - 1);
+    const radiusFraction = SPIRAL_MIN_RADIUS
+      + progress ** 0.65 * (SPIRAL_MAX_RADIUS - SPIRAL_MIN_RADIUS);
+    const angle = pitchNumberToAngle(entry.pitchNumber) + progress * TWO_PI * 0.95;
     const point = polarToCanvas(angle, radiusFraction, center, maxRadius);
 
     return {
@@ -417,20 +420,91 @@ function drawSpiralGuide(context, center, maxRadius) {
 }
 
 function drawSpiralConnector(context, fromPoint, toPoint, center, maxRadius) {
-  const midAngle = interpolateAngleClockwise(fromPoint.angle, toPoint.angle, 0.5);
-  const midRadius = (fromPoint.radius + toPoint.radius) / 2;
-  const control = polarToCanvas(midAngle, midRadius, center, maxRadius);
+  const outerRadius = Math.min(
+    Math.max(fromPoint.radius, toPoint.radius) + SPIRAL_CONNECTOR_BULGE,
+    SPIRAL_MAX_RADIUS + 0.04,
+  );
+  const cp1 = polarToCanvas(fromPoint.angle, outerRadius, center, maxRadius);
+  const cp2 = polarToCanvas(toPoint.angle, outerRadius, center, maxRadius);
 
   context.beginPath();
   context.moveTo(fromPoint.x, fromPoint.y);
-  context.quadraticCurveTo(control.x, control.y, toPoint.x, toPoint.y);
+  context.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, toPoint.x, toPoint.y);
   context.stroke();
+}
+
+function drawPitchSpiralScene(context, center, maxRadius, points) {
+  drawSpiralGuide(context, center, maxRadius);
+
+  context.strokeStyle = 'rgba(79, 140, 255, 0.45)';
+  context.lineWidth = 2;
+  context.lineCap = 'round';
+
+  for (let index = 1; index < points.length; index += 1) {
+    drawSpiralConnector(context, points[index - 1], points[index], center, maxRadius);
+  }
+
+  points.forEach((point, index) => {
+    const isLatest = index === points.length - 1;
+    context.beginPath();
+    context.fillStyle = isLatest ? '#35bfa5' : '#4f8cff';
+    context.arc(point.x, point.y, isLatest ? 6 : 5, 0, TWO_PI);
+    context.fill();
+
+    context.fillStyle = '#e8edf2';
+    context.font = isLatest ? '600 9px "Segoe UI", system-ui, sans-serif' : '600 8px "Segoe UI", system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(String(point.pitchNumber), point.x, point.y);
+
+    if (isLatest) {
+      context.beginPath();
+      context.strokeStyle = 'rgba(232, 237, 242, 0.9)';
+      context.lineWidth = 1.5;
+      context.arc(point.x, point.y, 8, 0, TWO_PI);
+      context.stroke();
+    }
+  });
+}
+
+function attachSpiralZoom(canvas, drawScene) {
+  const view = { scale: 1, offsetX: 0, offsetY: 0 };
+
+  function redraw() {
+    const context = canvas.getContext('2d');
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.fillStyle = '#121820';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.save();
+    context.translate(view.offsetX, view.offsetY);
+    context.scale(view.scale, view.scale);
+    drawScene(context);
+    context.restore();
+  }
+
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleFactor = canvas.width / rect.width;
+    const pointerX = (event.clientX - rect.left) * scaleFactor;
+    const pointerY = (event.clientY - rect.top) * scaleFactor;
+    const zoomMultiplier = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const nextScale = Math.min(SPIRAL_ZOOM_MAX, Math.max(SPIRAL_ZOOM_MIN, view.scale * zoomMultiplier));
+
+    view.offsetX = pointerX - ((pointerX - view.offsetX) * nextScale) / view.scale;
+    view.offsetY = pointerY - ((pointerY - view.offsetY) * nextScale) / view.scale;
+    view.scale = nextScale;
+    redraw();
+  }, { passive: false });
+
+  redraw();
 }
 
 function renderPitchSpiral(pitcherRows, pitcherName) {
   const card = createChartCard(
     'Pitch spiral',
-    'Full pitch history for the selected pitcher. Pitch number maps clockwise from 0/1000 at the top; newer pitches sit farther from the center.',
+    'Chronological pitch path spirals outward from pitch-number compass positions. Scroll over the chart to zoom.',
   );
   card.classList.add('chart-card--wide', 'chart-card--spiral');
 
@@ -459,43 +533,19 @@ function renderPitchSpiral(pitcherRows, pitcherName) {
     `Pitch spiral for ${pitcherName} with ${pitchRows.length} pitches.`,
   );
 
-  const context = canvas.getContext('2d');
   const center = SPIRAL_CANVAS_SIZE / 2;
   const maxRadius = SPIRAL_CANVAS_SIZE * 0.42;
   const points = buildSpiralPoints(pitchRows, center, maxRadius);
 
-  context.fillStyle = '#121820';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
-  drawSpiralGuide(context, center, maxRadius);
-
-  context.strokeStyle = 'rgba(79, 140, 255, 0.45)';
-  context.lineWidth = 2;
-  context.lineCap = 'round';
-
-  for (let index = 1; index < points.length; index += 1) {
-    drawSpiralConnector(context, points[index - 1], points[index], center, maxRadius);
-  }
-
-  points.forEach((point, index) => {
-    const isLatest = index === points.length - 1;
-    context.beginPath();
-    context.fillStyle = isLatest ? '#35bfa5' : '#4f8cff';
-    context.arc(point.x, point.y, isLatest ? 5 : 4, 0, TWO_PI);
-    context.fill();
-
-    if (isLatest) {
-      context.strokeStyle = 'rgba(232, 237, 242, 0.9)';
-      context.lineWidth = 1.5;
-      context.stroke();
-    }
+  attachSpiralZoom(canvas, (context) => {
+    drawPitchSpiralScene(context, center, maxRadius, points);
   });
 
   canvasWrap.appendChild(canvas);
 
   const legend = document.createElement('p');
   legend.className = 'spiral-legend';
-  legend.textContent = `${pitchRows.length.toLocaleString()} pitches · oldest near center · newest highlighted`;
+  legend.textContent = `${pitchRows.length.toLocaleString()} pitches · scroll to zoom · newest highlighted in green`;
 
   card.append(canvasWrap, legend);
   return card;
