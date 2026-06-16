@@ -67,11 +67,12 @@ Shows **all pitch history** for the selected pitcher.
 | --- | --- |
 | Angular position | `pitch # × 360 ÷ 1000` degrees clockwise from top center (500 at bottom, 250 at right). |
 | Radial position | Oldest pitch near the center; each later pitch is placed farther out. |
-| Connectors | Outward-bulging cubic curves link each pitch to the chronologically previous pitch. |
-| Labels | Each point shows its pitch number; the most recent pitch is highlighted in green. |
-| Zoom | Scroll over the chart to zoom in or out. |
+| Connectors | Smooth paths interpolated through the midpoint pitch number and radius between each pair of pitches. |
+| Labels | Each point shows its pitch number inside a sized bubble; the most recent pitch is highlighted in green. |
+| Guides | Radial lines and labels at every 100 on the pitch scale (0/1000, 100, 200, …). |
+| Zoom | Scroll to zoom; the container scrolls when zoomed in so content is not clipped. |
 
-Guide labels appear at 0/1000, 250, 500, and 750 on the outer ring. Chronological order uses the `Play` field.
+Guide labels appear at every 100 on the pitch scale. Chronological order uses the `Play` field.
 
 ## Extending charts
 

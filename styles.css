@@ -136,7 +136,7 @@ select {
 }
 
 .chart-card--spiral {
-  min-height: 620px;
+  min-height: 700px;
 }
 
 .chart-card h2 {
@@ -237,21 +237,19 @@ select {
 }
 
 .spiral-canvas-wrap {
-  display: flex;
-  justify-content: center;
+  display: block;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #121820;
   padding: 0.75rem;
-  overflow: hidden;
+  overflow: auto;
+  max-height: 720px;
   cursor: zoom-in;
 }
 
 .spiral-canvas {
   display: block;
-  width: min(100%, 560px);
-  height: auto;
-  aspect-ratio: 1;
+  flex-shrink: 0;
 }
 
 .spiral-legend {
