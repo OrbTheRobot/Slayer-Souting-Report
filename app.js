@@ -31,15 +31,32 @@ const RESULT_CATEGORY_COLORS = {
 };
 
 const pitcherSelect = document.getElementById('pitcher-select');
+const syncSheetBtn = document.getElementById('sync-sheet-btn');
 const statusEl = document.getElementById('status');
 const rowCountEl = document.getElementById('row-count');
 const chartGrid = document.getElementById('chart-grid');
 
 let allRows = [];
+let isLoadingSheet = false;
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
   statusEl.classList.toggle('error', isError);
+}
+
+function formatSyncTime(date) {
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function setSyncLoading(loading) {
+  isLoadingSheet = loading;
+  syncSheetBtn.disabled = loading;
+  syncSheetBtn.setAttribute('aria-busy', loading ? 'true' : 'false');
+  syncSheetBtn.textContent = loading ? 'Syncing…' : 'Sync sheet';
 }
 
 function parseCsv(text) {
@@ -631,11 +648,18 @@ function updateDashboard() {
   renderDashboard(filteredRows, selectedPitcher);
 }
 
-async function loadSheetData() {
-  setStatus('Loading sheet data...');
+async function loadSheetData({ forceRefresh = false } = {}) {
+  if (isLoadingSheet) {
+    return;
+  }
+
+  setSyncLoading(true);
+  setStatus(forceRefresh ? 'Syncing sheet data...' : 'Loading sheet data...');
 
   try {
-    const response = await fetch(getSheetCsvUrl());
+    const response = await fetch(getSheetCsvUrl({ bustCache: forceRefresh }), {
+      cache: forceRefresh ? 'no-store' : 'default',
+    });
     if (!response.ok) {
       throw new Error(`Sheet request failed (${response.status})`);
     }
@@ -647,17 +671,18 @@ async function loadSheetData() {
     const pitchers = getUniquePitchers(allRows);
     populatePitcherDropdown(pitchers);
 
-    if (pitchers.length > 0 && !pitcherSelect.value) {
-      pitcherSelect.value = pitchers[0];
-    }
-
     updateDashboard();
-    setStatus(`Loaded ${allRows.length.toLocaleString()} plays from ${SHEET_CONFIG.sheetName}`);
+    setStatus(
+      `${forceRefresh ? 'Synced' : 'Loaded'} ${allRows.length.toLocaleString()} plays · ${formatSyncTime(new Date())}`,
+    );
   } catch (error) {
     console.error(error);
     setStatus(`Failed to load sheet: ${error.message}`, true);
+  } finally {
+    setSyncLoading(false);
   }
 }
 
 pitcherSelect.addEventListener('change', updateDashboard);
+syncSheetBtn.addEventListener('click', () => loadSheetData({ forceRefresh: true }));
 loadSheetData();

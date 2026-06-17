@@ -4,7 +4,13 @@ export const SHEET_CONFIG = {
   filterColumn: 'Pitcher',
 };
 
-export function getSheetCsvUrl() {
+export function getSheetCsvUrl({ bustCache = false } = {}) {
   const sheet = encodeURIComponent(SHEET_CONFIG.sheetName);
-  return `https://docs.google.com/spreadsheets/d/${SHEET_CONFIG.spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${sheet}`;
+  const base = `https://docs.google.com/spreadsheets/d/${SHEET_CONFIG.spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${sheet}`;
+
+  if (bustCache) {
+    return `${base}&t=${Date.now()}`;
+  }
+
+  return base;
 }

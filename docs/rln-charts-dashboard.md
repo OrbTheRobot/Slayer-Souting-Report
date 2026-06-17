@@ -24,7 +24,7 @@ flowchart LR
 | Pitch number field | `Pitch #` (sheet column J), scale 1–1000 |
 | Fetch URL | `https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet=Plays%20(Converted)` |
 
-The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. Both charts use the selected pitcher. The first pitcher in the sheet is selected by default on load.
+The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. Both charts use the selected pitcher. The first pitcher in the sheet is selected by default on load. Use **Sync sheet** in the controls bar to fetch the latest CSV on demand; the selected pitcher is preserved when possible.
 
 ## File map
 
@@ -90,5 +90,5 @@ Example fields available on each play row:
 ## Notes
 
 - No API key is required because the sheet is public and fetched through Google's CSV export endpoint.
-- Data refresh happens on page load. Add a refresh button or interval polling later if needed.
+- Data loads on page open. Click **Sync sheet** to refresh from the spreadsheet; manual sync bypasses browser cache with a cache-busting query parameter.
 - Charts are rendered with native DOM and canvas.
