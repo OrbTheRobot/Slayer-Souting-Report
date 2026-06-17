@@ -37,7 +37,6 @@ Open `Tornado-Scouting.code-workspace` in Cursor to keep this project isolated f
 Chart renderers live in `app.js`:
 
 1. **Last 10 pitches** — table sorted chronologically by `Play`
-2. **Result heatmap** — canvas heatmap with pitch # 1–1000 on the X axis
-3. **Pitch spiral** — full pitcher history on a pitch-number compass with radial recency
+2. **Pitch spiral** — full pitcher history on a pitch-number compass with result colors and radial recency
 
 Configuration lives in `config.js`. See `docs/rln-charts-dashboard.md` for full specs.

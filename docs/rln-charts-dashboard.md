@@ -11,7 +11,6 @@ flowchart LR
     Sheet[Google Sheet Plays Converted] -->|gviz CSV| App[Static web app]
     App --> Filter[Pitcher dropdown]
     Filter --> Table[Last 10 pitches table]
-    Filter --> Heatmap[Result heatmap]
     Filter --> Spiral[Pitch spiral]
 ```
 
@@ -25,16 +24,16 @@ flowchart LR
 | Pitch number field | `Pitch #` (sheet column J), scale 1–1000 |
 | Fetch URL | `https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet=Plays%20(Converted)` |
 
-The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. All three charts use the selected pitcher. The first pitcher in the sheet is selected by default on load.
+The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. Both charts use the selected pitcher. The first pitcher in the sheet is selected by default on load.
 
 ## File map
 
 | File | Responsibility |
 | --- | --- |
 | `index.html` | Page shell and chart container |
-| `styles.css` | Layout, table, and heatmap theme |
+| `styles.css` | Layout, table, spiral, and legend theme |
 | `config.js` | Sheet ID, tab name, filter column |
-| `app.js` | CSV fetch/parse, filter logic, table, heatmap, and spiral rendering |
+| `app.js` | CSV fetch/parse, filter logic, table and spiral rendering |
 
 ## Charts
 
@@ -51,24 +50,17 @@ Shows the 10 most recent pitches for the selected pitcher, sorted chronologicall
 
 Rows without a valid pitch number (1–1000) are excluded.
 
-### Chart 2 — Result heatmap
+### Chart 2 — Pitch spiral
 
-- **Y-axis (bucketed):** one row per `Result` value for the selected pitcher, ordered by frequency.
-- **X-axis (continuous):** pitch number from 1 to 1000 at the bubble's horizontal position.
-- **Bubbles:** circles labeled with the exact pitch number for each play.
-
-Rendered on a 1000px-wide canvas. The `Diff` field is not used.
-
-### Chart 3 — Pitch spiral
-
-Shows **all pitch history** for the selected pitcher.
+Shows **all pitch history** for the selected pitcher, including result type as node color.
 
 | Element | Behavior |
 | --- | --- |
 | Angular position | `pitch # × 360 ÷ 1000` degrees clockwise from top center (500 at bottom, 250 at right). |
-| Radial position | Oldest pitch near the center; each later pitch is placed farther out. |
+| Radial position | Oldest pitch near the center; each later pitch is placed farther out with wide radial spread. |
+| Node color | Each `Result` value maps to a distinct color; legend shown below the chart. |
 | Connectors | Smooth paths interpolated through the midpoint pitch number and radius, taking the shortest route around the 0/1000 boundary. |
-| Labels | Each point shows its pitch number inside a sized bubble; the most recent pitch is highlighted in green. |
+| Labels | Each point shows its pitch number inside the colored bubble; the most recent pitch has a white ring. |
 | Guides | Radial lines and labels at every 100 on the pitch scale (0/1000, 100, 200, …). |
 | Zoom | Scroll to zoom; the container scrolls when zoomed in so content is not clipped. |
 
@@ -98,4 +90,4 @@ Example fields available on each play row:
 
 - No API key is required because the sheet is public and fetched through Google's CSV export endpoint.
 - Data refresh happens on page load. Add a refresh button or interval polling later if needed.
-- Chart.js is no longer used; the table and heatmap are rendered with native DOM and canvas.
+- Charts are rendered with native DOM and canvas.
