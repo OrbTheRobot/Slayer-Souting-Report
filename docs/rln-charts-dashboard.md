@@ -30,7 +30,7 @@ flowchart LR
 | Plays fetch URL | `https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet=Plays%20(Converted)` |
 | Players fetch URL | `https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet=Players` |
 
-The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. The batter dropdown lists batters faced by the selected pitcher (defaulting to the most recent). Matchup stats are looked up by matching `Government Name` (column D) to the selected pitcher and batter, merged from the `Players` tab and `import_players` (including the IMPORTRANGE player universe when that tab only contains import formulas). All charts use the selected pitcher. The first pitcher in the sheet is selected by default on load. Use **Sync sheet** in the controls bar to fetch the latest CSV from both tabs on demand; the selected pitcher is preserved when possible.
+The app maps CSV headers to row objects and filters rows where `Pitcher` equals the selected dropdown value. The batter dropdown lists all players from the imported player universe (not limited to batters the selected pitcher has faced); it defaults to the most recent batter faced when available. Matchup stats are looked up by matching `Government Name` (column D) to the selected pitcher and batter, merged from the `Players` tab and `import_players` (including the IMPORTRANGE player universe when that tab only contains import formulas). All charts use the selected pitcher. The first pitcher in the sheet is selected by default on load. Use **Sync sheet** in the controls bar to fetch the latest CSV from both tabs on demand; the selected pitcher is preserved when possible.
 
 ## Situation panel and range table
 

@@ -211,17 +211,8 @@ function populatePitcherDropdown(pitchers) {
   populateSelect(pitcherSelect, pitchers, { previousValue: pitcherSelect.value });
 }
 
-function getUniqueBatters(rows) {
-  const batters = new Set();
-
-  rows.forEach((row) => {
-    const batter = row.Batter?.trim();
-    if (batter) {
-      batters.add(batter);
-    }
-  });
-
-  return [...batters].sort((a, b) => a.localeCompare(b));
+function getAllBatters() {
+  return [...playerStatsByName.keys()].sort((a, b) => a.localeCompare(b));
 }
 
 function getMostRecentBatter(rows) {
@@ -1879,7 +1870,7 @@ function updateDashboard() {
   }
 
   const filteredRows = filterRowsByPitcher(allRows, selectedPitcher);
-  const batters = getUniqueBatters(filteredRows);
+  const batters = getAllBatters();
   populateBatterDropdown(batters, filteredRows);
 
   const selectedBatter = batterSelect.value;
