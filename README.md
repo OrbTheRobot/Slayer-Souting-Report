@@ -37,6 +37,7 @@ Open `Tornado-Scouting.code-workspace` in Cursor to keep this project isolated f
 Chart renderers live in `app.js`:
 
 1. **Last 10 pitches** — table sorted chronologically by `Play`
-2. **Pitch spiral** — full pitcher history on a pitch-number compass with result colors and radial recency
+2. **Spiral Scouting Graph** — full pitcher history on a pitch-number compass with result colors and radial recency
+3. **Matsumoto Plot** — horizontal box plot of pitch-to-pitch deltas by result type
 
 Configuration lives in `config.js`. See `docs/rln-charts-dashboard.md` for full specs.

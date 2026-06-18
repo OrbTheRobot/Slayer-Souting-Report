@@ -23,6 +23,11 @@ const SPIRAL_RADIUS_SCALE = 0.4;
 const SPIRAL_POINT_RADIUS = 12;
 const SPIRAL_LATEST_RADIUS = 14;
 const SPIRAL_CONNECTOR_STEPS = 72;
+const SPIRAL_CONNECTOR_OPACITY = 0.36;
+const SPIRAL_TRANSITION_CONNECTOR_COLOR = 'rgba(154, 167, 181, 0.7)';
+const DELTA_CHART_WIDTH = 900;
+const DELTA_CHART_RENDER_SCALE = 2;
+const DELTA_CHART_MAX_DELTA = 500;
 const SPIRAL_ZOOM_MIN = 0.6;
 const SPIRAL_ZOOM_MAX = 8;
 const TWO_PI = Math.PI * 2;
@@ -41,6 +46,13 @@ const RESULT_CATEGORY_COLORS = {
   'Home Run': '#35bfa5',
   Other: '#9aa7b5',
 };
+
+const DELTA_PLOT_CATEGORIES = [
+  { key: 'Home Run', label: 'HR', color: RESULT_CATEGORY_COLORS['Home Run'] },
+  { key: 'Base Hit', label: 'Hit', color: RESULT_CATEGORY_COLORS['Base Hit'] },
+  { key: 'Out', label: 'Out', color: RESULT_CATEGORY_COLORS.Out },
+  { key: 'Strikeout', label: 'K', color: RESULT_CATEGORY_COLORS.Strikeout },
+];
 
 const BATTING_STAT_FIELDS = [
   { key: 'handedness', label: 'Hand' },
@@ -64,11 +76,13 @@ const hypotheticalSwingToggle = document.getElementById('hypothetical-swing-togg
 const hypotheticalSwingFields = document.getElementById('hypothetical-swing-fields');
 const hypotheticalSwingInput = document.getElementById('hypothetical-swing-input');
 const simulateSwingBtn = document.getElementById('simulate-swing-btn');
+const pitchRecencySelect = document.getElementById('pitch-recency-select');
 const syncSheetBtn = document.getElementById('sync-sheet-btn');
 const statusEl = document.getElementById('status');
 const rowCountEl = document.getElementById('row-count');
 const chartGrid = document.getElementById('chart-grid');
 const situationPanel = document.getElementById('situation-panel');
+const matchupStackEl = document.getElementById('matchup-stack');
 
 let allRows = [];
 let playerStatsByName = new Map();
@@ -514,6 +528,30 @@ function getChronologicalPitchRows(rows) {
     .filter(Boolean);
 }
 
+function getPitchRecencyLimit() {
+  const value = pitchRecencySelect?.value ?? '20';
+  if (value === 'all') {
+    return null;
+  }
+
+  const limit = Number.parseInt(value, 10);
+  return Number.isFinite(limit) ? limit : 20;
+}
+
+function getRecentChronologicalPitchRows(rows) {
+  const pitchRows = getChronologicalPitchRows(rows);
+  const limit = getPitchRecencyLimit();
+
+  if (limit === null || pitchRows.length <= limit) {
+    return [...pitchRows].sort((a, b) => a.playOrder - b.playOrder);
+  }
+
+  return [...pitchRows]
+    .sort((a, b) => b.playOrder - a.playOrder)
+    .slice(0, limit)
+    .sort((a, b) => a.playOrder - b.playOrder);
+}
+
 function normalizeResultCategory(result) {
   const code = result?.trim() || '';
 
@@ -777,6 +815,8 @@ function renderLastTenPitchesTable(rows) {
 
   const columns = [
     { key: 'Pitch #', label: 'Pitch' },
+    { key: 'delta', label: 'Δ' },
+    { key: 'rotation', label: 'Dir' },
     { key: 'Swing #', label: 'Swing' },
     { key: 'Result', label: 'Result' },
     { key: 'Batter', label: 'Batter' },
@@ -794,11 +834,32 @@ function renderLastTenPitchesTable(rows) {
   thead.appendChild(headerRow);
 
   const tbody = document.createElement('tbody');
-  pitchRows.forEach(({ row }) => {
+  pitchRows.forEach((entry, index) => {
+    const previousEntry = pitchRows[index + 1];
+    const travelDelta = previousEntry
+      ? getPitchTravelDelta(previousEntry.pitchNumber, entry.pitchNumber)
+      : null;
+    const rotation = previousEntry
+      ? getPitchRotationDirection(previousEntry.pitchNumber, entry.pitchNumber)
+      : '—';
+
     const tr = document.createElement('tr');
     columns.forEach(({ key }) => {
       const td = document.createElement('td');
-      td.textContent = row[key]?.trim() || '—';
+      if (key === 'delta') {
+        td.textContent = travelDelta === null ? '—' : String(travelDelta);
+      } else if (key === 'rotation') {
+        td.textContent = rotation;
+        if (rotation === '↻') {
+          td.title = 'Clockwise';
+          td.setAttribute('aria-label', 'Clockwise');
+        } else if (rotation === '↺') {
+          td.title = 'Counter-clockwise';
+          td.setAttribute('aria-label', 'Counter-clockwise');
+        }
+      } else {
+        td.textContent = entry.row[key]?.trim() || '—';
+      }
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -854,6 +915,377 @@ function getShortestPitchDelta(fromPitch, toPitch) {
   }
 
   return delta;
+}
+
+function getPitchTravelDelta(fromPitch, toPitch) {
+  return Math.abs(getShortestPitchDelta(fromPitch, toPitch));
+}
+
+function getPitchRotationDirection(fromPitch, toPitch) {
+  const delta = getShortestPitchDelta(fromPitch, toPitch);
+
+  if (delta === 0) {
+    return '—';
+  }
+
+  return delta > 0 ? '↻' : '↺';
+}
+
+function formatDeltaMagnitudeLabel(signedDelta) {
+  return String(Math.abs(signedDelta));
+}
+
+const DELTA_BOX_LABEL_INSET = 5;
+
+function buildInsideBoxLabels(stats, plotLeft, plotWidth) {
+  const q1X = signedDeltaToPlotX(stats.q1, plotLeft, plotWidth);
+  const q3X = signedDeltaToPlotX(stats.q3, plotLeft, plotWidth);
+
+  return [
+    { x: q1X + DELTA_BOX_LABEL_INSET, value: stats.q1, textAlign: 'left' },
+    { x: q3X - DELTA_BOX_LABEL_INSET, value: stats.q3, textAlign: 'right' },
+  ];
+}
+
+function buildGapLabels(stats, plotLeft, plotWidth) {
+  const minX = signedDeltaToPlotX(stats.min, plotLeft, plotWidth);
+  const medianX = signedDeltaToPlotX(stats.median, plotLeft, plotWidth);
+  const maxX = signedDeltaToPlotX(stats.max, plotLeft, plotWidth);
+
+  const labels = [
+    { x: minX, value: stats.min, textAlign: 'center' },
+    { x: medianX, value: stats.median, textAlign: 'center' },
+    { x: maxX, value: stats.max, textAlign: 'center' },
+  ];
+
+  const visible = [];
+
+  labels.forEach((label) => {
+    const text = formatDeltaMagnitudeLabel(label.value);
+    const overlaps = visible.some(
+      (existing) =>
+        formatDeltaMagnitudeLabel(existing.value) === text &&
+        Math.abs(existing.x - label.x) < 16,
+    );
+
+    if (!overlaps) {
+      visible.push(label);
+    }
+  });
+
+  return visible;
+}
+
+function drawDeltaStatLabels(context, labels, y, color, stroke = false) {
+  context.font = '600 10px "Segoe UI", system-ui, sans-serif';
+  context.textBaseline = 'middle';
+  context.fillStyle = color;
+
+  labels.forEach(({ x, value, textAlign }) => {
+    const text = formatDeltaMagnitudeLabel(value);
+
+    context.textAlign = textAlign;
+
+    if (stroke) {
+      context.lineWidth = 3;
+      context.strokeStyle = '#121820';
+      context.strokeText(text, x, y);
+    }
+
+    context.fillText(text, x, y);
+  });
+}
+
+function signedDeltaToPlotX(signedDelta, plotLeft, plotWidth) {
+  const clamped = Math.max(-DELTA_CHART_MAX_DELTA, Math.min(DELTA_CHART_MAX_DELTA, signedDelta));
+
+  return plotLeft + ((clamped + DELTA_CHART_MAX_DELTA) / (DELTA_CHART_MAX_DELTA * 2)) * plotWidth;
+}
+
+function buildHorizontalBandLayout() {
+  return {
+    bandHeight: 40,
+    bandGap: 40,
+    outerGap: 40,
+    innerGap: 14,
+    axisArea: 42,
+    marginLeft: 54,
+    marginRight: 28,
+    marginTop: 8,
+  };
+}
+
+function computeDeltaChartHeight(layout) {
+  const categoryCount = DELTA_PLOT_CATEGORIES.length;
+
+  return (
+    layout.marginTop +
+    layout.outerGap +
+    categoryCount * layout.bandHeight +
+    (categoryCount - 1) * layout.bandGap +
+    layout.innerGap +
+    layout.axisArea
+  );
+}
+
+function getCategoryBandBounds(layout, axisY, index) {
+  const bandBottom = axisY - layout.innerGap - index * (layout.bandHeight + layout.bandGap);
+  const bandTop = bandBottom - layout.bandHeight;
+  const gapSize = index === DELTA_PLOT_CATEGORIES.length - 1 ? layout.outerGap : layout.bandGap;
+  const labelY = bandTop - gapSize / 2;
+
+  return { bandTop, bandBottom, labelY };
+}
+
+function computeBoxPlotStats(values) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const quantile = (probability) => {
+    const position = (sorted.length - 1) * probability;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+
+    if (lower === upper) {
+      return sorted[lower];
+    }
+
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  };
+
+  return {
+    min: sorted[0],
+    q1: quantile(0.25),
+    median: quantile(0.5),
+    q3: quantile(0.75),
+    max: sorted[sorted.length - 1],
+  };
+}
+
+function buildPitchDeltaTransitions(pitchRows) {
+  const chronological = [...pitchRows].sort((a, b) => a.playOrder - b.playOrder);
+  const transitions = [];
+
+  for (let index = 1; index < chronological.length; index += 1) {
+    const previous = chronological[index - 1];
+    const current = chronological[index];
+    const signedDelta = getShortestPitchDelta(previous.pitchNumber, current.pitchNumber);
+    const category = normalizeResultCategory(current.row.Result?.trim() || '');
+
+    if (!DELTA_PLOT_CATEGORIES.some((entry) => entry.key === category)) {
+      continue;
+    }
+
+    transitions.push({
+      signedDelta,
+      category,
+      pitchNumber: current.pitchNumber,
+    });
+  }
+
+  return transitions;
+}
+
+function drawDeltaSpectrumScene(context, transitions, layout, chartHeight) {
+  const plotLeft = layout.marginLeft;
+  const plotRight = DELTA_CHART_WIDTH - layout.marginRight;
+  const plotWidth = plotRight - plotLeft;
+  const axisY = chartHeight - layout.axisArea;
+
+  context.clearRect(0, 0, DELTA_CHART_WIDTH, chartHeight);
+  context.fillStyle = '#121820';
+  context.fillRect(0, 0, DELTA_CHART_WIDTH, chartHeight);
+
+  context.strokeStyle = 'rgba(154, 167, 181, 0.35)';
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.moveTo(plotLeft, axisY);
+  context.lineTo(plotRight, axisY);
+  context.stroke();
+
+  [
+    { signedDelta: -500, label: '500' },
+    { signedDelta: -250, label: '250' },
+    { signedDelta: 0, label: '0' },
+    { signedDelta: 250, label: '250' },
+    { signedDelta: 500, label: '500' },
+  ].forEach(({ signedDelta, label }) => {
+    const x = signedDeltaToPlotX(signedDelta, plotLeft, plotWidth);
+
+    context.beginPath();
+    context.strokeStyle = signedDelta === 0 ? 'rgba(154, 167, 181, 0.55)' : 'rgba(154, 167, 181, 0.28)';
+    context.lineWidth = signedDelta === 0 ? 2 : 1;
+    context.moveTo(x, axisY);
+    context.lineTo(x, axisY + 8);
+    context.stroke();
+
+    context.fillStyle = 'rgba(154, 167, 181, 0.9)';
+    context.font = '600 11px "Segoe UI", system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'top';
+    context.fillText(label, x, axisY + 12);
+  });
+
+  context.font = '600 13px "Segoe UI", system-ui, sans-serif';
+  context.fillStyle = 'rgba(154, 167, 181, 0.85)';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText('↺', plotLeft - 18, axisY);
+  context.fillText('↻', plotRight + 18, axisY);
+
+  DELTA_PLOT_CATEGORIES.forEach((category, index) => {
+    const { bandTop, bandBottom, labelY } = getCategoryBandBounds(layout, axisY, index);
+    const categoryTransitions = transitions.filter((entry) => entry.category === category.key);
+    const deltas = categoryTransitions.map((entry) => entry.signedDelta);
+    const stats = computeBoxPlotStats(deltas);
+
+    context.strokeStyle = 'rgba(154, 167, 181, 0.18)';
+    context.lineWidth = 1;
+    context.strokeRect(plotLeft, bandTop, plotWidth, layout.bandHeight);
+
+    context.fillStyle = category.color;
+    context.font = '700 13px "Segoe UI", system-ui, sans-serif';
+    context.textAlign = 'right';
+    context.textBaseline = 'middle';
+    context.fillText(category.label, plotLeft - 10, (bandTop + bandBottom) / 2);
+
+    if (!stats) {
+      context.fillStyle = 'rgba(154, 167, 181, 0.65)';
+      context.font = '500 11px "Segoe UI", system-ui, sans-serif';
+      context.textAlign = 'center';
+      context.fillText('No data', plotLeft + plotWidth / 2, (bandTop + bandBottom) / 2);
+      return;
+    }
+
+    const q1X = signedDeltaToPlotX(stats.q1, plotLeft, plotWidth);
+    const q3X = signedDeltaToPlotX(stats.q3, plotLeft, plotWidth);
+    const medianX = signedDeltaToPlotX(stats.median, plotLeft, plotWidth);
+    const minX = signedDeltaToPlotX(stats.min, plotLeft, plotWidth);
+    const maxX = signedDeltaToPlotX(stats.max, plotLeft, plotWidth);
+    const midY = (bandTop + bandBottom) / 2;
+
+    context.fillStyle = hexToRgba(category.color, 0.28);
+    context.fillRect(q1X, bandTop + 2, q3X - q1X, layout.bandHeight - 4);
+
+    context.strokeStyle = hexToRgba(category.color, 0.65);
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(minX, midY);
+    context.lineTo(q1X, midY);
+    context.moveTo(q3X, midY);
+    context.lineTo(maxX, midY);
+    context.stroke();
+
+    context.beginPath();
+    context.strokeStyle = category.color;
+    context.lineWidth = 3;
+    context.moveTo(medianX, bandTop + 3);
+    context.lineTo(medianX, bandBottom - 3);
+    context.stroke();
+
+    context.beginPath();
+    context.strokeStyle = category.color;
+    context.lineWidth = 1.5;
+    context.moveTo(minX, bandTop + 4);
+    context.lineTo(minX, bandBottom - 4);
+    context.moveTo(maxX, bandTop + 4);
+    context.lineTo(maxX, bandBottom - 4);
+    context.stroke();
+
+    drawDeltaStatLabels(
+      context,
+      buildInsideBoxLabels(stats, plotLeft, plotWidth),
+      midY,
+      category.color,
+      true,
+    );
+    drawDeltaStatLabels(
+      context,
+      buildGapLabels(stats, plotLeft, plotWidth),
+      labelY,
+      category.color,
+    );
+  });
+}
+
+function renderDeltaSpectrumLegend() {
+  const legend = document.createElement('div');
+  legend.className = 'result-legend result-legend--top';
+
+  DELTA_PLOT_CATEGORIES.forEach((category) => {
+    const item = document.createElement('span');
+    item.className = 'result-legend-item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'result-legend-swatch';
+    swatch.style.backgroundColor = category.color;
+
+    const label = document.createElement('span');
+    label.textContent = category.label;
+
+    item.append(swatch, label);
+    legend.appendChild(item);
+  });
+
+  return legend;
+}
+
+function renderPitchDeltaSpectrum(pitcherRows, pitcherName) {
+  const card = createChartCard(
+    'Matsumoto Plot',
+    'Absolute delta from the previous pitch on a flat 500 ↺ to 500 ↻ axis. Each band shows aggregate min, Q1, median, Q3, and max for that result type.',
+  );
+  card.classList.add('chart-card--wide', 'chart-card--delta-spectrum');
+
+  const pitchRows = getRecentChronologicalPitchRows(pitcherRows);
+  const transitions = buildPitchDeltaTransitions(pitchRows);
+
+  if (pitchRows.length < 2 || transitions.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = pitcherName
+      ? 'Not enough pitch transitions to draw the Matsumoto Plot.'
+      : 'Select a pitcher to view the Matsumoto Plot.';
+    card.appendChild(empty);
+    return card;
+  }
+
+  const stage = document.createElement('div');
+  stage.className = 'delta-spectrum-stage';
+
+  const canvasWrap = document.createElement('div');
+  canvasWrap.className = 'delta-spectrum-canvas-wrap';
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'delta-spectrum-canvas';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute(
+    'aria-label',
+    `Matsumoto Plot for ${pitcherName} showing aggregate box-plot stats by result type.`,
+  );
+
+  const layout = buildHorizontalBandLayout();
+  const chartHeight = computeDeltaChartHeight(layout);
+
+  canvas.width = DELTA_CHART_WIDTH * DELTA_CHART_RENDER_SCALE;
+  canvas.height = chartHeight * DELTA_CHART_RENDER_SCALE;
+
+  const context = canvas.getContext('2d');
+  context.setTransform(DELTA_CHART_RENDER_SCALE, 0, 0, DELTA_CHART_RENDER_SCALE, 0, 0);
+  drawDeltaSpectrumScene(context, transitions, layout, chartHeight);
+
+  canvasWrap.appendChild(canvas);
+  stage.append(renderDeltaSpectrumLegend(), canvasWrap);
+
+  const meta = document.createElement('p');
+  meta.className = 'spiral-legend';
+  meta.textContent = 'Q1/Q3 on box center line inside shaded band · min, median, max in gap above each band';
+  stage.appendChild(meta);
+  card.appendChild(stage);
+
+  return card;
 }
 
 function interpolatePitchNumber(fromPitch, toPitch, progress) {
@@ -1169,13 +1601,20 @@ function drawPitchSpiralScene(
     drawRangeMarkers(context, center, maxRadius, rangeRegions, swingAnchor);
   }
 
-  context.strokeStyle = 'rgba(154, 167, 181, 0.35)';
   context.lineWidth = 2;
   context.lineCap = 'round';
   context.lineJoin = 'round';
 
   for (let index = 1; index < points.length; index += 1) {
-    drawSpiralConnector(context, points[index - 1], points[index], center, maxRadius);
+    const fromPoint = points[index - 1];
+    const toPoint = points[index];
+    const isTransition = fromPoint.game !== toPoint.game
+      || fromPoint.inning !== toPoint.inning;
+
+    context.strokeStyle = isTransition
+      ? SPIRAL_TRANSITION_CONNECTOR_COLOR
+      : hexToRgba(fromPoint.color, SPIRAL_CONNECTOR_OPACITY);
+    drawSpiralConnector(context, fromPoint, toPoint, center, maxRadius);
   }
 
   points.forEach((point, index) => {
@@ -1272,12 +1711,13 @@ function attachSpiralZoom(canvas, drawScene) {
 
 function renderPitchSpiral(pitcherRows, pitcherName, batterName) {
   const card = createChartCard(
-    'Pitch spiral',
+    'Spiral Scouting Graph',
     'Pitch number sets angle from top (pitch # × 360 ÷ 1000). Color shows result type; line style marks inning and game transitions. Scroll to zoom.',
   );
   card.classList.add('chart-card--wide', 'chart-card--spiral');
 
-  const pitchRows = getChronologicalPitchRows(pitcherRows);
+  const allPitchRows = getChronologicalPitchRows(pitcherRows);
+  const pitchRows = getRecentChronologicalPitchRows(pitcherRows);
 
   if (pitchRows.length === 0) {
     const empty = document.createElement('p');
@@ -1306,7 +1746,7 @@ function renderPitchSpiral(pitcherRows, pitcherName, batterName) {
   canvas.setAttribute('role', 'img');
   canvas.setAttribute(
     'aria-label',
-    `Pitch spiral for ${pitcherName} with ${pitchRows.length} pitches colored by result category.`,
+    `Spiral Scouting Graph for ${pitcherName} with ${pitchRows.length} pitches colored by result category.`,
   );
 
   canvasWrap.appendChild(canvas);
@@ -1324,7 +1764,9 @@ function renderPitchSpiral(pitcherRows, pitcherName, batterName) {
 
   const meta = document.createElement('p');
   meta.className = 'spiral-legend';
-  meta.textContent = `${pitchRows.length.toLocaleString()} pitches · scroll to zoom · white ring marks most recent pitch`;
+  meta.textContent = pitchRows.length < allPitchRows.length
+    ? `${pitchRows.length.toLocaleString()} of ${allPitchRows.length.toLocaleString()} pitches · scroll to zoom · white ring marks most recent pitch`
+    : `${pitchRows.length.toLocaleString()} pitches · scroll to zoom · white ring marks most recent pitch`;
 
   stage.appendChild(meta);
   card.appendChild(stage);
@@ -1333,14 +1775,14 @@ function renderPitchSpiral(pitcherRows, pitcherName, batterName) {
 
 function getSituationState() {
   const readRunner = (name) => (
-    document.querySelector(`input[name="${name}"]:checked`)?.value === 'on'
+    document.querySelector(`input[name="${name}"]`)?.checked ?? false
   );
 
   return {
     onFirst: readRunner('runner-first'),
     onSecond: readRunner('runner-second'),
     onThird: readRunner('runner-third'),
-    outs: Number(document.querySelector('input[name="outs-count"]:checked')?.value ?? 0),
+    outs: Number(document.getElementById('outs-count')?.value ?? 0),
   };
 }
 
@@ -1406,24 +1848,18 @@ function renderDashboard(pitcherRows, pitcherName, batterName) {
   spiralRedraw = null;
   chartGrid.replaceChildren();
 
-  const topRow = document.createElement('div');
-  topRow.className = 'chart-row';
-
-  const matchupStack = document.createElement('div');
-  matchupStack.className = 'matchup-stack';
-  matchupStack.append(
+  matchupStackEl?.replaceChildren(
     renderMatchup(pitcherName, batterName),
     renderRangeTableCard(pitcherName, batterName),
   );
 
-  topRow.append(
-    renderLastTenPitchesTable(pitcherRows),
-    matchupStack,
-  );
+  const lastTenCard = renderLastTenPitchesTable(pitcherRows);
+  lastTenCard.classList.add('chart-card--wide');
 
   chartGrid.append(
-    topRow,
+    lastTenCard,
     renderPitchSpiral(pitcherRows, pitcherName, batterName),
+    renderPitchDeltaSpectrum(pitcherRows, pitcherName),
   );
 }
 
@@ -1437,6 +1873,7 @@ function updateDashboard() {
   if (!selectedPitcher) {
     rowCountEl.textContent = '0 plays';
     batterSelect.replaceChildren();
+    matchupStackEl?.replaceChildren();
     chartGrid.replaceChildren();
     return;
   }
@@ -1501,6 +1938,12 @@ hypotheticalSwingInput.addEventListener('input', () => {
 });
 simulateSwingBtn.addEventListener('click', handleSimulateSwing);
 syncSheetBtn.addEventListener('click', () => loadSheetData({ forceRefresh: true }));
+
+pitchRecencySelect?.addEventListener('change', () => {
+  if (pitcherSelect.value) {
+    updateDashboard();
+  }
+});
 
 situationPanel?.addEventListener('change', () => {
   if (pitcherSelect.value) {

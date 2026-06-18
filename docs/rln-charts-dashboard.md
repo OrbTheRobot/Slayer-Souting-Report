@@ -13,7 +13,8 @@ flowchart LR
     App --> Filter[Pitcher dropdown]
     Filter --> Table[Last 10 pitches table]
     Filter --> Stats[Matchup stats]
-    Filter --> Spiral[Pitch spiral]
+    Filter --> Spiral[Spiral Scouting Graph]
+    Filter --> Matsumoto[Matsumoto Plot]
 ```
 
 ## Data contract
@@ -33,19 +34,19 @@ The app maps CSV headers to row objects and filters rows where `Pitcher` equals 
 
 ## Situation panel and range table
 
-The **Situation** panel sits above the chart grid. It drives the **Range table** card:
+The **Situation** panel shares a top row with **Matchup** and **Range table** (side by side on the right). The situation panel stretches to the same height as the range table; the diamond scales to fill that space while the matchup + range row keeps full width alignment with the chart cards below. It drives the **Range table** card:
 
 | Control | Purpose |
 |---------|---------|
-| Diamond base pickers (1st / 2nd / 3rd) | Radio: Empty or Runner on each base |
-| Outs | Radio: 0, 1, or 2 outs |
+| Diamond base pickers (1st / 2nd / 3rd) | Checkbox on each base (checked = runner on base) |
+| Outs | Dropdown centered inside the diamond: 0, 1, or 2 outs |
 
 The range table is computed client-side from stadium calculator logic (`rangeEngine.js` + `calculator-tables.js`):
 
 - Uses selected pitcher/batter ratings and handedness for base range sizes (normal swing only; bunts excluded).
 - Pitcher **MOV** is shown in matchup stats but is **not** used in Hit/K rating deltas (matches the stadium calculator, where cell X3 is empty).
 - Splits sub-results (for example `2BWH`, `1BWH`, `FO`) based on the chosen runner configuration.
-- Shown under **Matchup** in the top chart row (Last 10 pitches | Matchup + Range table).
+- Shown beside **Situation** in the dashboard top row, next to **Matchup**.
 - Columns: **Result**, **Down**, **Up**.
   - Hypothetical Swing **off**: `Down = -high>`, `Up = <high` (cumulative diff bounds); **K** shows `—` in both columns
   - Hypothetical Swing **on** (with a swing value): `Down` / `Up` = swing ± cumulative high (0–1000); **K** still shows `—`
@@ -71,11 +72,13 @@ Then copy any updated values into `calculator-tables.js`.
 
 ### Chart 1 — Last 10 pitches (table)
 
-Shows the 10 most recent pitches for the selected pitcher, sorted chronologically by `Play` (most recent first). Displayed beside the Matchup chart in a shared top row.
+Shows the 10 most recent pitches for the selected pitcher, sorted chronologically by `Play` (most recent first). Full-width card above the Spiral Scouting Graph.
 
 | Column | Source field |
 | --- | --- |
 | Pitch | `Pitch #` |
+| Δ | Absolute shortest-path delta from the chronologically previous pitch (wraps at 0/1000) |
+| Dir | Rotation from previous pitch: ↻ (clockwise) or ↺ (counter-clockwise); `—` for the oldest row |
 | Swing | `Swing #` |
 | Result | `Result` |
 | Batter | `Batter` |
@@ -92,18 +95,19 @@ Shows pitcher and batter ratings side by side for the selected matchup. Stats co
 | Pitcher | Hand (J), MOV (O), CMD (P), VEL (Q), AWR (R) |
 | Batter | Hand (J), CON (K), EYE (L), POW (M), SPD (N) |
 
-Displayed as a narrow vertical list beside the last-10-pitches table.
+Displayed beside the **Situation** panel in the dashboard top row, to the left of the range table.
 
-### Chart 2 — Pitch spiral
+### Chart 2 — Spiral Scouting Graph
 
-Shows **all pitch history** for the selected pitcher, including result type as node color.
+Shows recent pitch history for the selected pitcher, including result type as node color. Use the **Recency** dropdown in the controls bar to limit the graph to the most recent 10, 20, 30, 40, or 50 pitches, or **All** (default **20**).
 
 | Element | Behavior |
 | --- | --- |
+| Recency filter | Limits graph to the most recent N pitches by `Play` order; footer shows `N of total` when filtered. |
 | Angular position | `pitch # × 360 ÷ 1000` degrees clockwise from top center (500 at bottom, 250 at right). |
 | Radial position | Oldest pitch near the center; each later pitch is placed farther out with wide radial spread. |
 | Node color | Raw `Result` codes are grouped into categories: **Base Hit** (blue), **Out** (orange), **Strikeout** (red), **Home Run** (green), and **Other** (gray). |
-| Connectors | Smooth paths interpolated through the midpoint pitch number and radius, taking the shortest route around the 0/1000 boundary. Solid lines connect consecutive pitches; dotted lines mark inning changes; dashed lines mark game changes. |
+| Connectors | Smooth paths interpolated through the midpoint pitch number and radius, taking the shortest route around the 0/1000 boundary. Each segment uses the previous pitch's result color at 36% opacity. Inning and game transitions use neutral grey at 70% opacity (dotted/dashed) instead of result color. Solid lines connect consecutive pitches; dotted lines mark inning changes; dashed lines mark game changes. |
 | Labels | Each point shows its pitch number inside the colored bubble; the most recent pitch has a white ring. |
 | Legend | Result categories and transition line styles sit above the chart (not overlaid on the canvas). |
 | Guides | Radial lines and labels at every 100 on the pitch scale (0/1000, 100, 200, …). |
@@ -112,6 +116,17 @@ Shows **all pitch history** for the selected pitcher, including result type as n
 | Range markers | When **Hypothetical Swing** is active, each bracket band fills a thin annular slice (about one-quarter the previous thickness) on the outer guide with 25%-opacity color and 75%-opacity boundary ticks. Each tick is labeled with its pitch number in the matching color. Result codes label the bands (`|1B|2B|3B|HR|3B|2B|1B|`, with red **K** in the outermost band). |
 
 Guide labels appear at every 100 on the pitch scale. Chronological order uses the `Play` field. Hypothetical swing and range markers use the same angular scale as pitch/swing numbers (`swing # × 360 ÷ 1000`).
+
+### Chart 3 — Matsumoto Plot (horizontal box plot)
+
+Shows absolute pitch-to-pitch delta on a **flat horizontal axis** from **500 ↺** (left) through **0** (center) to **500 ↻** (right). Uses the same **Recency** filter as the Spiral Scouting Graph.
+
+| Element | Behavior |
+| --- | --- |
+| Layout | Four 40px stacked bands (HR, Hit, Out, K) with 40px gaps between them; canvas height is computed from band/gap/axis dimensions (no fixed top padding). |
+| Box plot | Shaded horizontal band = Q1–Q3; whiskers to min/max; thick vertical tick at median. |
+| Points | Aggregate labels only: **Q1/Q3** on the band center line, inset inside the shaded box; **min, median, max** centered in the gap above each band. Individual pitches are not plotted. |
+| Category | Grouped by the **current pitch** result type. **Other** results are excluded. |
 
 ## Extending charts
 
@@ -131,7 +146,7 @@ Example fields available on each play row:
 - [x] Push repo to GitHub
 - [ ] Enable GitHub Pages from `main` / root
 - [ ] Confirm sheet remains publicly readable
-- [x] Define and implement Chart 3
+- [x] Define and implement Chart 3 (Matsumoto Plot)
 
 ## Notes
 

@@ -55,6 +55,18 @@
             </div>
           </div>
 
+          <div class="control-group control-group--recency">
+            <label for="pitch-recency-select">Recency</label>
+            <select id="pitch-recency-select" aria-label="Number of recent pitches to show on Spiral Scouting Graph">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="30">30</option>
+              <option value="40">40</option>
+              <option value="50">50</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+
           <div class="meta">
             <span class="pill" id="row-count">0 plays</span>
             <span id="status">Initializing...</span>
@@ -63,45 +75,48 @@
 
       </section>
 
-      <section class="situation-panel" id="situation-panel" aria-label="Game situation">
-        <div class="situation-panel__header">
-          <h2>Situation</h2>
-          <p>Set base runners and outs to build the normal-swing range table for the selected matchup.</p>
-        </div>
-
-        <div class="situation-panel__body">
-          <div class="diamond-panel">
-            <svg class="diamond-graphic" viewBox="0 0 220 220" aria-hidden="true">
-              <path class="diamond-graphic__infield" d="M110 24 L196 110 L110 196 L24 110 Z" />
-              <path class="diamond-graphic__grass" d="M110 52 L168 110 L110 168 L52 110 Z" />
-            </svg>
-
-            <fieldset class="base-picker base-picker--second">
-              <legend>2nd</legend>
-              <label><input type="radio" name="runner-second" value="empty" checked /> Empty</label>
-              <label><input type="radio" name="runner-second" value="on" /> Runner</label>
-            </fieldset>
-
-            <fieldset class="base-picker base-picker--third">
-              <legend>3rd</legend>
-              <label><input type="radio" name="runner-third" value="empty" checked /> Empty</label>
-              <label><input type="radio" name="runner-third" value="on" /> Runner</label>
-            </fieldset>
-
-            <fieldset class="base-picker base-picker--first">
-              <legend>1st</legend>
-              <label><input type="radio" name="runner-first" value="empty" checked /> Empty</label>
-              <label><input type="radio" name="runner-first" value="on" /> Runner</label>
-            </fieldset>
+      <section class="dashboard-top-row">
+        <section class="situation-panel" id="situation-panel" aria-label="Game situation">
+          <div class="situation-panel__header">
+            <h2>Situation</h2>
+            <p>Runners and outs for the range table.</p>
           </div>
 
-          <fieldset class="outs-picker">
-            <legend>Outs</legend>
-            <label><input type="radio" name="outs-count" value="0" checked /> 0</label>
-            <label><input type="radio" name="outs-count" value="1" /> 1</label>
-            <label><input type="radio" name="outs-count" value="2" /> 2</label>
-          </fieldset>
-        </div>
+          <div class="situation-panel__body">
+            <div class="diamond-panel">
+              <svg class="diamond-graphic" viewBox="0 0 220 220" aria-hidden="true">
+                <path class="diamond-graphic__infield" d="M110 24 L196 110 L110 196 L24 110 Z" />
+                <path class="diamond-graphic__grass" d="M110 52 L168 110 L110 168 L52 110 Z" />
+              </svg>
+
+              <label class="base-picker base-picker--second">
+                <input type="checkbox" name="runner-second" />
+                <span>2nd</span>
+              </label>
+
+              <label class="base-picker base-picker--third">
+                <input type="checkbox" name="runner-third" />
+                <span>3rd</span>
+              </label>
+
+              <label class="base-picker base-picker--first">
+                <input type="checkbox" name="runner-first" />
+                <span>1st</span>
+              </label>
+
+              <div class="outs-picker">
+                <label for="outs-count">Outs</label>
+                <select id="outs-count" name="outs-count" aria-label="Outs">
+                  <option value="0" selected>0</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="matchup-row" id="matchup-stack" aria-label="Matchup and range table"></div>
       </section>
 
       <section class="chart-grid" id="chart-grid" aria-live="polite"></section>
