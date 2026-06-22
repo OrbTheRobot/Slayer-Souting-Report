@@ -89,7 +89,7 @@ Then copy any updated values into `calculator-tables.js`.
 
 ## Layout and charts
 
-The header stacks two full-width panels above the spiral: a **Matchup** panel (pitcher and batter side by side, each with dropdown + one-line stats underneath) and **Live game** (score, situation diamond, sync status).
+The header stacks two full-width panels above the spiral: a **Matchup** panel (pitcher and batter side by side, each with dropdown + one-line stats underneath) and **Live game** (score, situation diamond, sync status). The pitcher column also shows **Favourite Pitches** (pitch numbers used more than once, sorted by count) and **Favourite Memes** (fixed meme pitch numbers with superscript counts; meme numbers with zero uses are omitted).
 
 ### Spiral Scouting Graph
 
@@ -102,8 +102,10 @@ Shows recent pitch history for the selected pitcher, including result type as no
 | Radial position | Oldest pitch near the center; each later pitch is placed farther out with wide radial spread. |
 | Node color | Raw `Result` codes are grouped into categories: **Base Hit** (blue), **Out** (orange), **Strikeout** (red), **Home Run** (green), and **Other** (gray). |
 | Connectors | Smooth paths interpolated through the midpoint pitch number and radius, taking the shortest route around the 0/1000 boundary. Each segment uses the previous pitch's result color at 36% opacity. Inning and game transitions use neutral grey at 70% opacity (dotted/dashed) instead of result color. Solid lines connect consecutive pitches; dotted lines mark inning changes; dashed lines mark game changes. |
-| Labels | Each point shows its pitch number inside the colored bubble; the most recent pitch has a white ring. |
+| Labels | Each point shows its pitch number inside the colored bubble (white text, black outline); the most recent pitch has a white ring. Δ band pitch numbers appear in the bottom-left chart table, not on the ring. |
 | Outer Δ band | Uses Matsumoto logic on the last **3 seasons** of pitcher data. Takes the **latest pitch** in the spiral window, groups historical transitions by that result type, and draws min/Q1/median/Q3/max as an annular box plot on the outer guide ring, **centered on the latest pitch** angle. |
+| Simulated swing target | When both Δ overlays are available, a thick red line from center to the recommended swing pitch marks the target. A top-right overlay shows **Attack Zone** (target ±150), **Recommended Swing** (highlighted in red), and **On Base Range** from the matchup range table. A bottom-left chart table lists **Low / Q1 / Median / Q3 / High** pitch numbers for **By Result** and **By Value** Δ bands. |
+| Projected situation bands | When pitcher and batter are selected, thick boundary ticks and mini situation icons appear outside the Δ rings (no filled bands). Consecutive results that project to the same base/out state are merged; icons sit at the center of each side’s arc. |
 | Legend | Result categories, transition line styles, and the active outer Δ band sit above the chart (not overlaid on the canvas). |
 | Guides | Radial lines and labels at every 100 on the pitch scale (0/1000, 100, 200, …). |
 | Zoom | Scroll to zoom from center; high-resolution canvas redraw keeps detail sharp. |

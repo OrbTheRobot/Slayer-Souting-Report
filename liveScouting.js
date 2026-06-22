@@ -265,3 +265,159 @@ export function inferSituationFromPlays(playRows, {
     inning: String(latest.Inning ?? '').trim(),
   };
 }
+
+function normalizeOuts(outs) {
+  const value = Number.parseInt(String(outs ?? 0), 10);
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (value >= 3) {
+    return 0;
+  }
+
+  return Math.min(2, Math.max(0, value));
+}
+
+function countRunnersOnBase(situation) {
+  return (
+    (situation?.onFirst ? 1 : 0)
+    + (situation?.onSecond ? 1 : 0)
+    + (situation?.onThird ? 1 : 0)
+  );
+}
+
+function finalizeProjectedSituation(state) {
+  const outs = Number.parseInt(String(state.outs ?? 0), 10);
+
+  if (Number.isFinite(outs) && outs >= 3) {
+    return {
+      onFirst: false,
+      onSecond: false,
+      onThird: false,
+      outs: 0,
+    };
+  }
+
+  return {
+    onFirst: Boolean(state.onFirst),
+    onSecond: Boolean(state.onSecond),
+    onThird: Boolean(state.onThird),
+    outs: normalizeOuts(outs),
+  };
+}
+
+function buildPlayOutcome(state, runsScored = 0) {
+  const rawOuts = Number.parseInt(String(state.outs ?? 0), 10);
+  return {
+    situation: finalizeProjectedSituation(state),
+    runsScored: Math.max(0, runsScored),
+    inningEnded: Number.isFinite(rawOuts) && rawOuts >= 3,
+  };
+}
+
+export function projectPlayOutcome(situation, resultCode) {
+  const code = String(resultCode ?? '').trim().toUpperCase();
+  let onFirst = Boolean(situation?.onFirst);
+  let onSecond = Boolean(situation?.onSecond);
+  let onThird = Boolean(situation?.onThird);
+  const outs = normalizeOuts(situation?.outs);
+  let runsScored = 0;
+
+  if (code === 'K' || code === 'PO') {
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs: outs + 1 });
+  }
+
+  if (code === 'BB') {
+    if (onFirst && onSecond && onThird) {
+      runsScored = 1;
+    }
+    if (onFirst && onSecond) {
+      onThird = true;
+    } else if (onFirst) {
+      onSecond = true;
+    } else {
+      onFirst = true;
+    }
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs }, runsScored);
+  }
+
+  if (code === 'HR') {
+    return buildPlayOutcome(
+      { onFirst: false, onSecond: false, onThird: false, outs },
+      countRunnersOnBase({ onFirst, onSecond, onThird }) + 1,
+    );
+  }
+
+  if (code === '3B') {
+    return buildPlayOutcome(
+      { onFirst: false, onSecond: false, onThird: true, outs },
+      countRunnersOnBase({ onFirst, onSecond, onThird }),
+    );
+  }
+
+  if (code === '2B' || code === '2BWH') {
+    runsScored = (onSecond ? 1 : 0) + (onThird ? 1 : 0);
+    return buildPlayOutcome(
+      { onFirst: false, onSecond: true, onThird: false, outs },
+      runsScored,
+    );
+  }
+
+  if (code.startsWith('1B') || code === 'IF1B') {
+    runsScored = (onThird ? 1 : 0) + (onSecond && onThird ? 1 : 0);
+    if (onThird && (onFirst || onSecond)) {
+      onThird = true;
+    } else if (onThird) {
+      onThird = false;
+      onFirst = true;
+    } else if (onSecond) {
+      onThird = onSecond;
+      onSecond = false;
+      onFirst = true;
+    } else if (onFirst) {
+      onSecond = onFirst;
+      onFirst = true;
+    } else {
+      onFirst = true;
+    }
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs }, runsScored);
+  }
+
+  if (code === 'FO' || code === 'DFO' || code === 'SACF' || code === 'DSACF') {
+    if ((code === 'SACF' || code === 'DSACF') && onThird && outs < 2) {
+      runsScored = 1;
+      onThird = false;
+    }
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs: outs + 1 }, runsScored);
+  }
+
+  if (code === 'GO' || code === 'GORA' || code === 'FCH') {
+    return buildPlayOutcome({ onFirst: false, onSecond, onThird, outs: outs + 1 });
+  }
+
+  if (code.startsWith('FC')) {
+    onFirst = false;
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs: outs + 1 });
+  }
+
+  if (code === 'TP') {
+    return buildPlayOutcome({
+      onFirst: false,
+      onSecond: false,
+      onThird: false,
+      outs: outs + 3,
+    });
+  }
+
+  if (code.startsWith('DP') || code === 'DPH1' || code === 'LODP' || code === 'LOTP') {
+    onFirst = false;
+    return buildPlayOutcome({ onFirst, onSecond, onThird, outs: outs + 2 });
+  }
+
+  return buildPlayOutcome({ onFirst, onSecond, onThird, outs: outs + 1 });
+}
+
+export function projectSituationAfterResult(situation, resultCode) {
+  return projectPlayOutcome(situation, resultCode).situation;
+}
