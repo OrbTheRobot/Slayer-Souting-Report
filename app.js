@@ -537,24 +537,59 @@ function parseSwingNumber(value) {
   return swingNumber;
 }
 
-function getPitchHundredBucketIndex(pitchNumber) {
-  return Math.floor((pitchNumber - 1) / 100);
-}
-
 function getPitchDensityBucketIndex(pitchNumber) {
   return Math.floor((pitchNumber - 1) / PITCH_DENSITY_BUCKET_SIZE);
 }
 
-function getPitchDensityBucketMidPitch(bucketIndex) {
-  return Math.min(
-    PITCH_MAX,
-    (bucketIndex * PITCH_DENSITY_BUCKET_SIZE) + Math.floor(PITCH_DENSITY_BUCKET_SIZE / 2) + 1,
-  );
+function getPitchDensityBucketRepresentativePitch(bucketIndex) {
+  return Math.min(PITCH_MAX, (bucketIndex + 1) * PITCH_DENSITY_BUCKET_SIZE);
 }
 
-function getPitchHundredBucketBounds(bucketIndex) {
+function buildPitchDensityBucketCounts(pitchRows) {
+  const counts = Array.from({ length: PITCH_DENSITY_BUCKET_COUNT }, () => 0);
+
+  pitchRows.forEach(({ pitchNumber }) => {
+    counts[getPitchDensityBucketIndex(pitchNumber)] += 1;
+  });
+
+  return counts;
+}
+
+function getRecommendedSwingFromBucketCounts(counts) {
+  if (!counts.length || counts.every((count) => count === 0)) {
+    return null;
+  }
+
+  let bestPairSum = -1;
+  let bestLeftIndex = 0;
+
+  for (let leftIndex = 0; leftIndex < counts.length; leftIndex += 1) {
+    const rightIndex = (leftIndex + 1) % counts.length;
+    const pairSum = counts[leftIndex] + counts[rightIndex];
+
+    if (
+      pairSum > bestPairSum
+      || (pairSum === bestPairSum && leftIndex < bestLeftIndex)
+    ) {
+      bestPairSum = pairSum;
+      bestLeftIndex = leftIndex;
+    }
+  }
+
+  const rightIndex = (bestLeftIndex + 1) % counts.length;
+  const leftPitch = getPitchDensityBucketRepresentativePitch(bestLeftIndex);
+  const rightPitch = getPitchDensityBucketRepresentativePitch(rightIndex);
+  const target = Math.round(normalizePitchNumber(
+    leftPitch + (getShortestPitchDelta(leftPitch, rightPitch) / 2),
+  ));
+
   return {
-    target: Math.min(PITCH_MAX, bucketIndex * 100 + 50),
+    target,
+    leftBucketIndex: bestLeftIndex,
+    rightBucketIndex: rightIndex,
+    pairCount: bestPairSum,
+    leftPitch,
+    rightPitch,
   };
 }
 
@@ -573,30 +608,19 @@ function getAttackZoneFromPitchRows(pitchRows) {
     return null;
   }
 
-  const bucketCounts = new Map();
+  const recommendation = getRecommendedSwingFromBucketCounts(
+    buildPitchDensityBucketCounts(pitchRows),
+  );
 
-  pitchRows.forEach(({ pitchNumber }) => {
-    const bucketIndex = getPitchHundredBucketIndex(pitchNumber);
-    bucketCounts.set(bucketIndex, (bucketCounts.get(bucketIndex) ?? 0) + 1);
-  });
-
-  let winningBucketIndex = 0;
-  let winningCount = -1;
-
-  bucketCounts.forEach((count, bucketIndex) => {
-    if (
-      count > winningCount
-      || (count === winningCount && bucketIndex > winningBucketIndex)
-    ) {
-      winningCount = count;
-      winningBucketIndex = bucketIndex;
-    }
-  });
+  if (!recommendation) {
+    return null;
+  }
 
   return {
-    bucketIndex: winningBucketIndex,
-    bucketCount: winningCount,
-    ...getAttackZoneBoundsFromTarget(getPitchHundredBucketBounds(winningBucketIndex).target),
+    bucketIndex: recommendation.leftBucketIndex,
+    rightBucketIndex: recommendation.rightBucketIndex,
+    bucketCount: recommendation.pairCount,
+    ...getAttackZoneBoundsFromTarget(recommendation.target),
   };
 }
 
@@ -2692,10 +2716,7 @@ function buildPitchDensityProfile(pitchRows, {
     return null;
   }
 
-  const counts = Array.from({ length: PITCH_DENSITY_BUCKET_COUNT }, () => 0);
-  pitchRows.forEach(({ pitchNumber }) => {
-    counts[getPitchDensityBucketIndex(pitchNumber)] += 1;
-  });
+  const counts = buildPitchDensityBucketCounts(pitchRows);
 
   const maxCount = Math.max(...counts);
   if (maxCount <= 0) {
@@ -2703,7 +2724,7 @@ function buildPitchDensityProfile(pitchRows, {
   }
 
   const buckets = counts.map((count, bucketIndex) => {
-    const pitchNumber = getPitchDensityBucketMidPitch(bucketIndex);
+    const pitchNumber = getPitchDensityBucketRepresentativePitch(bucketIndex);
     const normalized = count / maxCount;
 
     return {
