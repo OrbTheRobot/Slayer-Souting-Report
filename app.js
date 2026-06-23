@@ -50,6 +50,14 @@ const SPIRAL_AXIS_LABEL_OFFSET_PX = 16 * SPIRAL_TEXT_SCALE;
 const BUCKET_USAGE_LABEL_COLOR = 'rgba(176, 156, 196, 0.95)';
 const BUCKET_USAGE_RADIUS_OFFSET_PX = -4;
 const BUCKET_USAGE_LINE_GAP_PX = 2;
+const PITCH_DENSITY_BIN_COUNT = 250;
+const PITCH_DENSITY_KERNEL_SIGMA_BINS = 9;
+const PITCH_DENSITY_KERNEL_RADIUS_BINS = 24;
+const PITCH_DENSITY_SAMPLE_COUNT = 360;
+const PITCH_DENSITY_BASE_RADIUS = 0.055;
+const PITCH_DENSITY_MAX_BUMP = 0.52;
+const PITCH_DENSITY_STROKE_COLOR = 'rgba(156, 136, 186, 0.82)';
+const PITCH_DENSITY_FILL_COLOR = 'rgba(156, 136, 186, 0.14)';
 const SPIRAL_GUIDE_LABEL_CLEARANCE = 0.105;
 const DELTA_BAND_THICKNESS = 0.038;
 const DELTA_BAND_GAP = 0.012;
@@ -1262,6 +1270,7 @@ function getPitcherAnalytics(pitcherName) {
     visiblePitchRows,
     pitchCounts,
     bucketUsageStats: buildBucketUsageStats(allPitchRows),
+    pitchDensityProfile: buildPitchDensityProfile(allPitchRows),
     attackZone: getAttackZoneFromPitchRows(allPitchRows),
     favouritePitches: getFavouritePitchesFromCounts(pitchCounts),
     favouriteMemes: getFavouriteMemesFromCounts(pitchCounts),
@@ -1726,6 +1735,182 @@ function createChartCard(title, description) {
 
   card.append(heading, caption);
   return card;
+}
+
+let stylesheetTextPromise = null;
+
+function getStylesheetTextForExport() {
+  if (!stylesheetTextPromise) {
+    stylesheetTextPromise = fetch('./styles.css').then((response) => {
+      if (!response.ok) {
+        throw new Error(`Stylesheet request failed (${response.status})`);
+      }
+
+      return response.text();
+    });
+  }
+
+  return stylesheetTextPromise;
+}
+
+function loadImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load export image.'));
+    image.src = url;
+  });
+}
+
+function replaceCanvasesWithImages(sourceRoot, cloneRoot) {
+  const sourceCanvases = sourceRoot.querySelectorAll('canvas');
+
+  sourceCanvases.forEach((sourceCanvas, index) => {
+    const cloneCanvas = cloneRoot.querySelectorAll('canvas')[index];
+    if (!cloneCanvas) {
+      return;
+    }
+
+    const image = document.createElement('img');
+    image.src = sourceCanvas.toDataURL('image/png');
+    image.alt = sourceCanvas.getAttribute('aria-label') ?? '';
+
+    const computed = getComputedStyle(sourceCanvas);
+    image.style.width = computed.width;
+    image.style.height = computed.height;
+    image.style.display = computed.display;
+    image.className = sourceCanvas.className;
+
+    cloneCanvas.replaceWith(image);
+  });
+}
+
+function prepareElementCloneForImageExport(sourceElement, { excludeSelector = null } = {}) {
+  const clone = sourceElement.cloneNode(true);
+
+  if (excludeSelector) {
+    clone.querySelectorAll(excludeSelector).forEach((node) => node.remove());
+  }
+
+  replaceCanvasesWithImages(sourceElement, clone);
+
+  const rect = sourceElement.getBoundingClientRect();
+  const computed = getComputedStyle(sourceElement);
+  clone.style.width = `${Math.ceil(rect.width)}px`;
+  clone.style.height = `${Math.ceil(rect.height)}px`;
+  clone.style.margin = '0';
+  clone.style.boxSizing = 'border-box';
+  clone.style.background = computed.backgroundColor;
+
+  return clone;
+}
+
+async function copyBlobToClipboard(blob) {
+  if (!navigator.clipboard?.write || !window.ClipboardItem) {
+    throw new Error('Clipboard image copy is not supported in this browser.');
+  }
+
+  await navigator.clipboard.write([
+    new ClipboardItem({ 'image/png': blob }),
+  ]);
+}
+
+async function copyElementAsPngToClipboard(sourceElement, { scale = 2, excludeSelector = null } = {}) {
+  const rect = sourceElement.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  const [stylesheetText, clone] = await Promise.all([
+    getStylesheetTextForExport(),
+    Promise.resolve(prepareElementCloneForImageExport(sourceElement, { excludeSelector })),
+  ]);
+
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  wrapper.style.width = `${width}px`;
+  wrapper.style.height = `${height}px`;
+  wrapper.style.boxSizing = 'border-box';
+  wrapper.style.background = getComputedStyle(sourceElement).backgroundColor;
+
+  const styleEl = document.createElement('style');
+  styleEl.textContent = stylesheetText;
+  wrapper.append(styleEl, clone);
+
+  const serialized = new XMLSerializer().serializeToString(wrapper);
+  const svgMarkup = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+      <foreignObject width="100%" height="100%">
+        ${serialized}
+      </foreignObject>
+    </svg>`;
+  const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await loadImageElement(svgUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const context = canvas.getContext('2d');
+    context.scale(scale, scale);
+    context.drawImage(image, 0, 0, width, height);
+
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) {
+          resolve(result);
+          return;
+        }
+
+        reject(new Error('Failed to create PNG blob.'));
+      }, 'image/png');
+    });
+
+    await copyBlobToClipboard(pngBlob);
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+function attachTornadoGraphCopyButton(card, captureTarget) {
+  const heading = card.querySelector('h2');
+  if (!heading) {
+    return;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'chart-card__header';
+
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'tornado-graph-copy-btn';
+  copyButton.textContent = 'Copy image';
+  copyButton.addEventListener('click', async () => {
+    if (copyButton.disabled) {
+      return;
+    }
+
+    copyButton.disabled = true;
+    const originalLabel = copyButton.textContent;
+    copyButton.textContent = 'Copying...';
+
+    try {
+      await copyElementAsPngToClipboard(captureTarget, {
+        excludeSelector: '.tornado-graph-copy-btn',
+      });
+      copyButton.textContent = 'Copied!';
+    } catch (error) {
+      console.error(error);
+      copyButton.textContent = 'Copy failed';
+    } finally {
+      window.setTimeout(() => {
+        copyButton.disabled = false;
+        copyButton.textContent = originalLabel;
+      }, 1800);
+    }
+  });
+
+  heading.replaceWith(header);
+  header.append(heading, copyButton);
 }
 
 function getPitchNumberCounts(pitcherRows) {
@@ -2716,6 +2901,141 @@ function formatBucketUsageLabels(stats) {
   ];
 }
 
+function buildCircularGaussianKernel(sigma, radius) {
+  const kernel = [];
+
+  for (let offset = -radius; offset <= radius; offset += 1) {
+    kernel.push(Math.exp(-(offset * offset) / (2 * sigma * sigma)));
+  }
+
+  return kernel;
+}
+
+function circularConvolve1d(values, kernel) {
+  const length = values.length;
+  const radius = Math.floor(kernel.length / 2);
+  const result = new Float64Array(length);
+
+  for (let index = 0; index < length; index += 1) {
+    let sum = 0;
+    let weightSum = 0;
+
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      const sampleIndex = ((index + offset) % length + length) % length;
+      const weight = kernel[offset + radius];
+      sum += values[sampleIndex] * weight;
+      weightSum += weight;
+    }
+
+    result[index] = weightSum > 0 ? sum / weightSum : 0;
+  }
+
+  return result;
+}
+
+function pitchNumberToDensityBinPosition(pitchNumber) {
+  return ((pitchNumber - 1) / PITCH_MAX) * PITCH_DENSITY_BIN_COUNT;
+}
+
+function sampleCircularArray(values, position) {
+  const length = values.length;
+  const wrapped = ((position % length) + length) % length;
+  const lower = Math.floor(wrapped);
+  const upper = (lower + 1) % length;
+  const progress = wrapped - lower;
+
+  return values[lower] * (1 - progress) + values[upper] * progress;
+}
+
+function buildPitchDensityProfile(pitchRows) {
+  if (!pitchRows.length) {
+    return null;
+  }
+
+  const counts = new Float64Array(PITCH_DENSITY_BIN_COUNT);
+  pitchRows.forEach(({ pitchNumber }) => {
+    const binIndex = Math.min(
+      PITCH_DENSITY_BIN_COUNT - 1,
+      Math.floor(pitchNumberToDensityBinPosition(pitchNumber)),
+    );
+    counts[binIndex] += 1;
+  });
+
+  const kernel = buildCircularGaussianKernel(
+    PITCH_DENSITY_KERNEL_SIGMA_BINS,
+    PITCH_DENSITY_KERNEL_RADIUS_BINS,
+  );
+  const smoothed = circularConvolve1d(counts, kernel);
+  const samples = [];
+
+  for (let index = 0; index < PITCH_DENSITY_SAMPLE_COUNT; index += 1) {
+    const pitchNumber = 1 + (index / PITCH_DENSITY_SAMPLE_COUNT) * (PITCH_MAX - 1);
+    const density = sampleCircularArray(smoothed, pitchNumberToDensityBinPosition(pitchNumber));
+    samples.push({
+      pitchNumber,
+      angle: pitchNumberToAngle(pitchNumber),
+      density,
+    });
+  }
+
+  const maxDensity = Math.max(...samples.map((sample) => sample.density));
+  if (maxDensity <= 0) {
+    return null;
+  }
+
+  samples.forEach((sample) => {
+    const normalized = sample.density / maxDensity;
+    sample.normalized = normalized;
+    sample.radiusFraction = PITCH_DENSITY_BASE_RADIUS + (PITCH_DENSITY_MAX_BUMP * normalized);
+  });
+
+  return {
+    samples,
+    maxDensity,
+    sampleCount: pitchRows.length,
+  };
+}
+
+function drawPitchDensityRing(context, center, maxRadius, pitchDensityProfile) {
+  if (!pitchDensityProfile?.samples?.length) {
+    return;
+  }
+
+  const { samples } = pitchDensityProfile;
+
+  context.save();
+  context.beginPath();
+
+  samples.forEach((sample, index) => {
+    const point = polarToCanvas(sample.angle, sample.radiusFraction, center, maxRadius);
+    if (index === 0) {
+      context.moveTo(point.x, point.y);
+    } else {
+      context.lineTo(point.x, point.y);
+    }
+  });
+
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const point = polarToCanvas(
+      samples[index].angle,
+      PITCH_DENSITY_BASE_RADIUS,
+      center,
+      maxRadius,
+    );
+    context.lineTo(point.x, point.y);
+  }
+
+  context.closePath();
+  context.fillStyle = PITCH_DENSITY_FILL_COLOR;
+  context.fill();
+  context.strokeStyle = PITCH_DENSITY_STROKE_COLOR;
+  context.lineWidth = 2.5;
+  context.lineJoin = 'round';
+  context.lineCap = 'round';
+  context.stroke();
+  context.restore();
+}
+
 function drawTextAlongArc(context, center, maxRadius, text, midAngle, radiusFraction, color, fontSize) {
   context.save();
   context.font = `600 ${fontSize}px "Segoe UI", system-ui, sans-serif`;
@@ -3274,10 +3594,12 @@ function drawPitchSpiralScene(
   attackZone = null,
   rangeRegions = [],
   bucketUsageStats = [],
+  pitchDensityProfile = null,
   options = {},
 ) {
   const { skipConnectors = false } = options;
   drawSpiralGuide(context, center, maxRadius, bucketUsageStats);
+  drawPitchDensityRing(context, center, maxRadius, pitchDensityProfile);
 
   context.lineWidth = 2;
   context.lineCap = 'round';
@@ -3361,6 +3683,21 @@ function appendAttackZoneLegendItem(parent) {
   parent.appendChild(item);
 }
 
+function appendPitchDensityLegendItem(parent) {
+  const item = document.createElement('span');
+  item.className = 'result-legend-item';
+
+  const swatch = document.createElement('span');
+  swatch.className = 'connector-line-swatch';
+  swatch.style.borderTopColor = PITCH_DENSITY_STROKE_COLOR;
+
+  const text = document.createElement('span');
+  text.textContent = 'Pitch Density';
+
+  item.append(swatch, text);
+  parent.appendChild(item);
+}
+
 function renderSpiralLegend(
   categories,
   forwardDeltaOverlay = null,
@@ -3368,7 +3705,7 @@ function renderSpiralLegend(
   attackZone = null,
   options = {},
 ) {
-  const { firstPitchMode = false } = options;
+  const { firstPitchMode = false, pitchDensityProfile = null } = options;
   const legend = document.createElement('div');
   legend.className = 'result-legend result-legend--top';
 
@@ -3411,9 +3748,13 @@ function renderSpiralLegend(
 
   legend.appendChild(resultsRow);
 
-  if (forwardDeltaOverlay || proximityDeltaOverlay || attackZone) {
+  if (pitchDensityProfile || forwardDeltaOverlay || proximityDeltaOverlay || attackZone) {
     const overlayRow = document.createElement('div');
     overlayRow.className = 'result-legend-row';
+
+    if (pitchDensityProfile) {
+      appendPitchDensityLegendItem(overlayRow);
+    }
 
     if (attackZone) {
       appendAttackZoneLegendItem(overlayRow);
@@ -3484,8 +3825,8 @@ function attachSpiralZoom(canvas, drawScene) {
 
 function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   const card = createChartCard(
-    'Spiral Scouting Graph',
-    'Pitch number sets angle from top (pitch # × 360 ÷ 1000). Shows the last 25 pitches; stats and overlays use all available seasons. Purple curved labels between axis ticks show each 100-pitch bucket’s share of the last 100 pitches vs all-time. Scroll to zoom.',
+    'Tornado Graph',
+    'Pitch number sets angle from top (pitch # × 360 ÷ 1000). Shows the last 25 pitches; stats and overlays use all available seasons. A smoothed pitch-density ring in the inner chart grows outward where that pitch number appears more often. Purple curved labels between axis ticks show each 100-pitch bucket’s share of the last 100 pitches vs all-time. Scroll to zoom.',
   );
   card.classList.add('chart-card--wide', 'chart-card--spiral');
 
@@ -3493,6 +3834,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
     allPitchRows,
     visiblePitchRows,
     bucketUsageStats,
+    pitchDensityProfile,
     attackZone,
     rows: pitcherRows,
   } = pitcherAnalytics;
@@ -3504,6 +3846,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
       ? `No pitch data for ${pitcherName}.`
       : 'Select a pitcher to view pitch history.';
     card.appendChild(empty);
+    attachTornadoGraphCopyButton(card, card);
     return card;
   }
 
@@ -3534,7 +3877,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
     forwardDeltaOverlay,
     proximityDeltaOverlay,
     attackZone,
-    { firstPitchMode: firstPitchModeActive },
+    { firstPitchMode: firstPitchModeActive, pitchDensityProfile },
   );
 
   const stage = document.createElement('div');
@@ -3555,8 +3898,8 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   canvas.setAttribute(
     'aria-label',
     overlayLabels.length > 0
-      ? `Spiral Scouting Graph for ${pitcherName} with last ${visiblePitchRows.length} of ${allPitchRows.length.toLocaleString()} pitches and ${overlayLabels.join(' and ')}.`
-      : `Spiral Scouting Graph for ${pitcherName} with last ${visiblePitchRows.length} of ${allPitchRows.length.toLocaleString()} pitches colored by result category.`,
+      ? `Tornado Graph for ${pitcherName} with last ${visiblePitchRows.length} of ${allPitchRows.length.toLocaleString()} pitches and ${overlayLabels.join(' and ')}.`
+      : `Tornado Graph for ${pitcherName} with last ${visiblePitchRows.length} of ${allPitchRows.length.toLocaleString()} pitches colored by result category.`,
   );
 
   canvasWrap.appendChild(canvas);
@@ -3578,6 +3921,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
       attackZone,
       rangeRegions,
       bucketUsageStats,
+      pitchDensityProfile,
       { skipConnectors: firstPitchModeActive },
     );
   });
@@ -3588,6 +3932,10 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   const metaParts = [];
 
   metaParts.push(`${allPitchRows.length.toLocaleString()} pitches · last ${visiblePitchRows.length} shown`);
+
+  if (pitchDensityProfile) {
+    metaParts.push('smoothed pitch-density ring · all history by pitch number');
+  }
 
   if (firstPitchModeActive) {
     metaParts.push('first pitch mode · one pitch per game');
@@ -3611,6 +3959,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   meta.textContent = metaParts.join(' · ');
   stage.appendChild(meta);
   card.appendChild(stage);
+  attachTornadoGraphCopyButton(card, card);
   return card;
 }
 
@@ -3689,7 +4038,7 @@ function renderDashboard(pitcherAnalytics, pitcherName, batterName) {
 
   const loading = document.createElement('p');
   loading.className = 'empty-state';
-  loading.textContent = 'Rendering spiral graph...';
+  loading.textContent = 'Rendering tornado graph...';
   chartGrid.replaceChildren(loading);
 
   requestAnimationFrame(() => {

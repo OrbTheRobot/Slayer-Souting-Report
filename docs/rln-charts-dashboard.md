@@ -14,7 +14,7 @@ flowchart LR
     GamesSheet[Google Sheet Games] -->|gviz CSV| App
     DatesSheet[Google Sheet Dates] -->|gviz CSV| App
     App --> Filter[Pitcher dropdown]
-    Filter --> Spiral[Spiral Scouting Graph]
+    Filter --> Spiral[Tornado Graph]
 ```
 
 ## Data contract
@@ -44,7 +44,7 @@ The app maps CSV headers to row objects and filters rows where `Pitcher` equals 
 | **Live Scouting** (default) | Active pitchers on the opponent team for the locked SUN game | Active `SUN` roster players | Current live SUN game, or the next upcoming SUN game in the active session |
 | **Speculation** | Any pitcher with play data | Any player in the roster import | None |
 
-Live game resolution uses the **Dates** tab to find the current session (or the next upcoming session before the season starts) and the **Games** tab to find `SUN` matchups in that session. A game is treated as live when it has a `Start` time without `End`, or when converted plays exist for that `Game#` and the game is not finished. Otherwise the first unfinished SUN game in the session is used as the upcoming matchup. The controls bar shows the locked matchup label (for example `Upcoming: SUN @ HFX · Session 1 · vs HFX`). The spiral graph shows the last **25** pitches while stats and overlays use all available seasons.
+Live game resolution uses the **Dates** tab to find the current session (or the next upcoming session before the season starts) and the **Games** tab to find `SUN` matchups in that session. A game is treated as live when it has a `Start` time without `End`, or when converted plays exist for that `Game#` and the game is not finished. Otherwise the first unfinished SUN game in the session is used as the upcoming matchup. The controls bar shows the locked matchup label (for example `Upcoming: SUN @ HFX · Session 1 · vs HFX`). The tornado graph shows the last **25** pitches while stats and overlays use all available seasons.
 
 **First Pitch Mode** (checkbox beside the live situation diamond) filters all pitcher-scoped data to the earliest pitch per game for the selected pitcher. When active, a red banner appears on the situation box, pitch connectors are hidden, the **Next Pitch Range by Result** band is removed, and the value band becomes **First Pitches** centered on the widest empty arc between first-pitch numbers. A red **First Pitch Mode Active** label appears on the bottom-right of the spiral canvas.
 
@@ -93,7 +93,7 @@ Then copy any updated values into `calculator-tables.js`.
 
 The header stacks two full-width panels above the spiral: a **Matchup** panel (pitcher and batter side by side, each with dropdown + one-line stats underneath) and **Live game** (score, situation diamond, sync status). The pitcher column also shows **Favourite Pitches** (pitch numbers used more than once, sorted by count) and **Favourite Memes** (fixed meme pitch numbers with superscript counts; meme numbers with zero uses are omitted).
 
-### Spiral Scouting Graph
+### Tornado Graph
 
 Shows pitch history for the selected pitcher across all available seasons. The spiral draws only the last **25** pitches; overlays, attack zone, favourites, and bucket stats use the full history.
 
@@ -106,11 +106,12 @@ Shows pitch history for the selected pitcher across all available seasons. The s
 | Connectors | Smooth paths interpolated through the midpoint pitch number and radius, taking the shortest route around the 0/1000 boundary. Each segment uses the previous pitch's result color at 36% opacity. Inning and game transitions use neutral grey at 70% opacity (dotted/dashed) instead of result color. Solid lines connect consecutive pitches; dotted lines mark inning changes; dashed lines mark game changes. **Hidden in First Pitch Mode.** |
 | Labels | Each point shows its pitch number inside the colored bubble (white text, black outline); the most recent pitch has a white ring. Δ band pitch numbers appear in the bottom-left chart table, not on the ring. |
 | Bucket usage labels | Purple curved text between each 100-pitch axis sector: `Last 100: X% - All Time: Y%` (share of pitches in that bucket for the last 100 throws vs full history). |
+| Pitch density ring | Smoothed all-history histogram drawn as a closed inner ring. Radius at each pitch angle grows with local pitch count (Gaussian-smoothed around the 1–1000 scale). |
 | Outer Δ band | Uses Matsumoto logic on all available seasons. Takes the **latest pitch** in the full history, groups historical transitions by that result type, and draws min/Q1/median/Q3/max as an annular box plot on the outer guide ring. |
 | Simulated swing target | Groups all-history pitches into 100-pitch buckets, picks the bucket with the highest count, and sets **Recommended Swing** to that bucket + 50. A red annular **Attack Zone** band spans **300** pitches centered on the target (±150). The top-right overlay shows **Attack Zone**, **Recommended Swing** (highlighted in red), and **On Base Range** from the matchup range table. A bottom-left chart table lists **Low / Q1 / Median / Q3 / High** pitch numbers for **By Result** and **By Value** Δ bands (or **First Pitches** only in First Pitch Mode). |
 | First Pitch Mode | Checkbox beside the live situation diamond. Filters pitcher data to the first pitch of each game, hides connectors and the **By Result** Δ band, and shows a **First Pitches** distribution band. Endpoints are the two pitches with the widest empty arc between them; Q1, median, and Q3 are computed along the occupied arc from those boundaries, with the band centered at the arc midpoint. Red banner on the situation box and a bottom-right canvas overlay indicate active mode. |
 | Projected situation bands | When pitcher and batter are selected, thick boundary ticks and mini situation icons appear outside the Δ rings (no filled bands). Consecutive results that project to the same base/out state are merged; icons sit at the center of each side’s arc. |
-| Legend | Result categories, transition line styles, **Attack Zone**, and the active outer Δ bands sit above the chart (not overlaid on the canvas). |
+| Legend | Result categories, transition line styles, **Attack Zone**, and the active outer Δ bands sit above the chart (not overlaid on the canvas). Use **Copy image** in the card header to copy the full Tornado Graph card to the clipboard as PNG. |
 | Guides | Radial lines and labels at every 100 on the pitch scale (0/1000, 100, 200, …). |
 | Zoom | Scroll to zoom from center; high-resolution canvas redraw keeps detail sharp. |
 

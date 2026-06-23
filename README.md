@@ -36,6 +36,6 @@ Open `Tornado-Scouting.code-workspace` in Cursor to keep this project isolated f
 
 Chart renderers live in `app.js`:
 
-1. **Spiral Scouting Graph** — pitch compass with result colors and next-pitch range overlays
+1. **Tornado Graph** — pitch compass with result colors and next-pitch range overlays
 
 Configuration lives in `config.js`. See `docs/rln-charts-dashboard.md` for full specs.
