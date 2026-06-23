@@ -94,6 +94,8 @@ const CHART_CANVAS_STROKE = 'rgba(16, 12, 22, 0.9)';
 const CHART_MUTED = 'rgba(176, 156, 196';
 const SPIRAL_ZOOM_MIN = 0.6;
 const SPIRAL_ZOOM_MAX = 8;
+const SPIRAL_ZOOM_STEP = 1.12;
+const SPIRAL_ZOOM_DEFAULT = 1 / (SPIRAL_ZOOM_STEP ** 2);
 const TWO_PI = Math.PI * 2;
 
 const BASE_HIT_RESULTS = new Set(['1B', '1BWH', '2B', '2BWH', '3B', 'BB', 'IF1B']);
@@ -1735,182 +1737,6 @@ function createChartCard(title, description) {
 
   card.append(heading, caption);
   return card;
-}
-
-let stylesheetTextPromise = null;
-
-function getStylesheetTextForExport() {
-  if (!stylesheetTextPromise) {
-    stylesheetTextPromise = fetch('./styles.css').then((response) => {
-      if (!response.ok) {
-        throw new Error(`Stylesheet request failed (${response.status})`);
-      }
-
-      return response.text();
-    });
-  }
-
-  return stylesheetTextPromise;
-}
-
-function loadImageElement(url) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Failed to load export image.'));
-    image.src = url;
-  });
-}
-
-function replaceCanvasesWithImages(sourceRoot, cloneRoot) {
-  const sourceCanvases = sourceRoot.querySelectorAll('canvas');
-
-  sourceCanvases.forEach((sourceCanvas, index) => {
-    const cloneCanvas = cloneRoot.querySelectorAll('canvas')[index];
-    if (!cloneCanvas) {
-      return;
-    }
-
-    const image = document.createElement('img');
-    image.src = sourceCanvas.toDataURL('image/png');
-    image.alt = sourceCanvas.getAttribute('aria-label') ?? '';
-
-    const computed = getComputedStyle(sourceCanvas);
-    image.style.width = computed.width;
-    image.style.height = computed.height;
-    image.style.display = computed.display;
-    image.className = sourceCanvas.className;
-
-    cloneCanvas.replaceWith(image);
-  });
-}
-
-function prepareElementCloneForImageExport(sourceElement, { excludeSelector = null } = {}) {
-  const clone = sourceElement.cloneNode(true);
-
-  if (excludeSelector) {
-    clone.querySelectorAll(excludeSelector).forEach((node) => node.remove());
-  }
-
-  replaceCanvasesWithImages(sourceElement, clone);
-
-  const rect = sourceElement.getBoundingClientRect();
-  const computed = getComputedStyle(sourceElement);
-  clone.style.width = `${Math.ceil(rect.width)}px`;
-  clone.style.height = `${Math.ceil(rect.height)}px`;
-  clone.style.margin = '0';
-  clone.style.boxSizing = 'border-box';
-  clone.style.background = computed.backgroundColor;
-
-  return clone;
-}
-
-async function copyBlobToClipboard(blob) {
-  if (!navigator.clipboard?.write || !window.ClipboardItem) {
-    throw new Error('Clipboard image copy is not supported in this browser.');
-  }
-
-  await navigator.clipboard.write([
-    new ClipboardItem({ 'image/png': blob }),
-  ]);
-}
-
-async function copyElementAsPngToClipboard(sourceElement, { scale = 2, excludeSelector = null } = {}) {
-  const rect = sourceElement.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
-  const [stylesheetText, clone] = await Promise.all([
-    getStylesheetTextForExport(),
-    Promise.resolve(prepareElementCloneForImageExport(sourceElement, { excludeSelector })),
-  ]);
-
-  const wrapper = document.createElement('div');
-  wrapper.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-  wrapper.style.width = `${width}px`;
-  wrapper.style.height = `${height}px`;
-  wrapper.style.boxSizing = 'border-box';
-  wrapper.style.background = getComputedStyle(sourceElement).backgroundColor;
-
-  const styleEl = document.createElement('style');
-  styleEl.textContent = stylesheetText;
-  wrapper.append(styleEl, clone);
-
-  const serialized = new XMLSerializer().serializeToString(wrapper);
-  const svgMarkup = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-      <foreignObject width="100%" height="100%">
-        ${serialized}
-      </foreignObject>
-    </svg>`;
-  const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
-  const svgUrl = URL.createObjectURL(svgBlob);
-
-  try {
-    const image = await loadImageElement(svgUrl);
-    const canvas = document.createElement('canvas');
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-    const context = canvas.getContext('2d');
-    context.scale(scale, scale);
-    context.drawImage(image, 0, 0, width, height);
-
-    const pngBlob = await new Promise((resolve, reject) => {
-      canvas.toBlob((result) => {
-        if (result) {
-          resolve(result);
-          return;
-        }
-
-        reject(new Error('Failed to create PNG blob.'));
-      }, 'image/png');
-    });
-
-    await copyBlobToClipboard(pngBlob);
-  } finally {
-    URL.revokeObjectURL(svgUrl);
-  }
-}
-
-function attachTornadoGraphCopyButton(card, captureTarget) {
-  const heading = card.querySelector('h2');
-  if (!heading) {
-    return;
-  }
-
-  const header = document.createElement('div');
-  header.className = 'chart-card__header';
-
-  const copyButton = document.createElement('button');
-  copyButton.type = 'button';
-  copyButton.className = 'tornado-graph-copy-btn';
-  copyButton.textContent = 'Copy image';
-  copyButton.addEventListener('click', async () => {
-    if (copyButton.disabled) {
-      return;
-    }
-
-    copyButton.disabled = true;
-    const originalLabel = copyButton.textContent;
-    copyButton.textContent = 'Copying...';
-
-    try {
-      await copyElementAsPngToClipboard(captureTarget, {
-        excludeSelector: '.tornado-graph-copy-btn',
-      });
-      copyButton.textContent = 'Copied!';
-    } catch (error) {
-      console.error(error);
-      copyButton.textContent = 'Copy failed';
-    } finally {
-      window.setTimeout(() => {
-        copyButton.disabled = false;
-        copyButton.textContent = originalLabel;
-      }, 1800);
-    }
-  });
-
-  heading.replaceWith(header);
-  header.append(heading, copyButton);
 }
 
 function getPitchNumberCounts(pitcherRows) {
@@ -3786,7 +3612,7 @@ function renderSpiralLegend(
 }
 
 function attachSpiralZoom(canvas, drawScene) {
-  const view = { scale: 1 };
+  const view = { scale: SPIRAL_ZOOM_DEFAULT };
   const center = SPIRAL_CANVAS_SIZE / 2;
   const pixelSize = SPIRAL_CANVAS_SIZE * SPIRAL_RENDER_SCALE;
 
@@ -3810,7 +3636,7 @@ function attachSpiralZoom(canvas, drawScene) {
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
 
-    const zoomMultiplier = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const zoomMultiplier = event.deltaY < 0 ? SPIRAL_ZOOM_STEP : 1 / SPIRAL_ZOOM_STEP;
     view.scale = Math.min(
       SPIRAL_ZOOM_MAX,
       Math.max(SPIRAL_ZOOM_MIN, view.scale * zoomMultiplier),
@@ -3846,7 +3672,6 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
       ? `No pitch data for ${pitcherName}.`
       : 'Select a pitcher to view pitch history.';
     card.appendChild(empty);
-    attachTornadoGraphCopyButton(card, card);
     return card;
   }
 
@@ -3959,7 +3784,6 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   meta.textContent = metaParts.join(' · ');
   stage.appendChild(meta);
   card.appendChild(stage);
-  attachTornadoGraphCopyButton(card, card);
   return card;
 }
 
