@@ -105,6 +105,10 @@ const SPIRAL_ZOOM_MIN = 0.6;
 const SPIRAL_ZOOM_MAX = 8;
 const SPIRAL_ZOOM_STEP = 1.12;
 const SPIRAL_ZOOM_DEFAULT = 1 / (SPIRAL_ZOOM_STEP ** 2);
+const SPIRAL_DESCRIPTION_DEFAULT = 'Pitches are displayed on a circle with 0/1000 at the top and 500 at the bottom. recent pitches are further from the center and older pitches are close to the center. 25 pitches are displayed at a time. Pitch color indicates result. Pitch density aomeba graphs show a pitchers last 100 and all time pitch density in specific regions. Box and whisker graph rings show a pitchers tendencies for their next pitch based on certain criteria. |-25%-| 25% | 25% |-25%-|. Line and target show suggested pitch and the hatched region shows the suggested attack zone.';
+
+const SPIRAL_DESCRIPTION_PITCHER_MODE = 'Pitches are displayed on a circle with 0/1000 at the top and 500 at the bottom. recent pitches are further from the center and older pitches are close to the center. 25 pitches are displayed at a time. Pitch color indicates result. Pitch density aomeba graphs show a pitchers last 100 and all time pitch density in specific regions. Box and whisker graph rings show a pitchers tendencies for their next pitch based on certain criteria. |-25%-| 25% | 25% |-25%-|. Lines show previous swings with length representing recency like pitches.';
+
 const TWO_PI = Math.PI * 2;
 
 const BASE_HIT_RESULTS = new Set(['1B', '1BWH', '2B', '2BWH', '3B', 'BB', 'IF1B']);
@@ -157,6 +161,8 @@ const gameScoreTeamsEl = document.getElementById('game-score-teams');
 const situationGraphicEl = document.getElementById('situation-graphic');
 const firstPitchModeCheckbox = document.getElementById('first-pitch-mode');
 const pitcherModeCheckbox = document.getElementById('pitcher-mode');
+const exportPageBtn = document.getElementById('export-page-btn');
+const pageRootEl = document.querySelector('main.page');
 const firstPitchModeBannerEl = document.getElementById('first-pitch-mode-banner');
 const pitcherStatsEl = document.getElementById('pitcher-stats');
 const batterStatsEl = document.getElementById('batter-stats');
@@ -192,6 +198,7 @@ let lastSelectedPitcher = '';
 let inferredSituation = null;
 let firstPitchModeActive = false;
 let pitcherModeActive = false;
+let isExportingPage = false;
 
 function isPitcherMode() {
   return pitcherModeActive;
@@ -539,6 +546,88 @@ function updateFirstPitchModeBanner() {
   }
 
   firstPitchModeBannerEl.hidden = !firstPitchModeActive;
+}
+
+function slugifyExportName(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'dashboard';
+}
+
+async function loadPageImageExporter() {
+  return import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm');
+}
+
+async function exportPageAsPng() {
+  if (!pageRootEl || isExportingPage) {
+    return;
+  }
+
+  isExportingPage = true;
+  if (exportPageBtn) {
+    exportPageBtn.disabled = true;
+  }
+
+  const previousStatus = statusEl.textContent;
+  setStatus('Exporting page image...');
+
+  try {
+    const { toPng } = await loadPageImageExporter();
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+
+    window.scrollTo(0, 0);
+
+    const horizontalPadding = 16;
+    const contentWidth = pageRootEl.scrollWidth;
+    const captureWidth = contentWidth + horizontalPadding * 2;
+
+    const dataUrl = await toPng(pageRootEl, {
+      cacheBust: true,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      backgroundColor: '#100c16',
+      width: captureWidth,
+      height: pageRootEl.scrollHeight,
+      style: {
+        boxSizing: 'border-box',
+        width: `${captureWidth}px`,
+        paddingLeft: `${horizontalPadding}px`,
+        paddingRight: `${horizontalPadding}px`,
+        marginLeft: '0',
+        marginRight: '0',
+      },
+      filter: (node) => node !== exportPageBtn,
+    });
+
+    window.scrollTo(scrollX, scrollY);
+
+    const pitcherSlug = slugifyExportName(pitcherSelect.value);
+    const batterSlug = slugifyExportName(batterSelect.value);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const link = document.createElement('a');
+    link.download = `tornado-scouting-${pitcherSlug}-vs-${batterSlug}-${timestamp}.png`;
+    link.href = dataUrl;
+    link.click();
+
+    setStatus(`Exported page image · ${formatSyncTime(new Date())}`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`Export failed: ${error.message}`, true);
+    if (statusEl.textContent.startsWith('Export failed')) {
+      window.setTimeout(() => {
+        if (statusEl.textContent.startsWith('Export failed')) {
+          setStatus(previousStatus);
+        }
+      }, 4000);
+    }
+  } finally {
+    isExportingPage = false;
+    if (exportPageBtn) {
+      exportPageBtn.disabled = false;
+    }
+  }
 }
 
 function getAvailablePitchers() {
@@ -3785,9 +3874,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
   const pitcherMode = isPitcherMode();
   const card = createChartCard(
     'Tornado Graph',
-    pitcherMode
-      ? 'Pitch number sets angle from top (pitch # × 360 ÷ 1000). Pitcher mode shows SUN pitching: last 25 pitches with swing lines from center to each swing # at the same radius as its pitch (recency). Attack zone and recommended swing are hidden. Scroll to zoom.'
-      : 'Pitch number sets angle from top (pitch # × 360 ÷ 1000). Shows the last 25 pitches; stats and overlays use all available seasons. Smoothed pitch-density curves trace each 50-pitch bucket: purple for all-time usage, teal for the last 100 pitches. Farther from center means more pitches in that bucket. Scroll to zoom.',
+    pitcherMode ? SPIRAL_DESCRIPTION_PITCHER_MODE : SPIRAL_DESCRIPTION_DEFAULT,
   );
   card.classList.add('chart-card--wide', 'chart-card--spiral');
 
@@ -3905,42 +3992,7 @@ function renderPitchSpiral(pitcherAnalytics, pitcherName, batterName) {
 
   const meta = document.createElement('p');
   meta.className = 'spiral-legend';
-  const metaParts = [];
-
-  metaParts.push(`${allPitchRows.length.toLocaleString()} pitches · last ${visiblePitchRows.length} shown`);
-
-  if (pitchDensityProfiles?.allTime || pitchDensityProfiles?.recent) {
-    metaParts.push('smoothed pitch-density curves · all time (purple) · last 100 (teal) · 50-pitch buckets');
-  }
-
-  if (firstPitchModeActive) {
-    metaParts.push('first pitch mode · one pitch per game');
-  }
-
-  if (pitcherMode) {
-    metaParts.push('pitcher mode · swing lines share pitch radius');
-  }
-
-  if (forwardDeltaOverlay) {
-    metaParts.push(formatForwardDeltaCaption(forwardDeltaOverlay));
-  }
-
-  if (proximityDeltaOverlay) {
-    metaParts.push(formatForwardDeltaCaption(proximityDeltaOverlay));
-  }
-
-  if (situationDeltaOverlay) {
-    metaParts.push(formatForwardDeltaCaption(situationDeltaOverlay));
-  }
-
-  if (rangeRegions.length > 0) {
-    metaParts.push(`projected situation bands · ${rangeRegions.length} situations`);
-  }
-
-  metaParts.push(firstPitchModeActive
-    ? 'scroll to zoom · white ring marks most recent first pitch'
-    : 'scroll to zoom · white ring marks most recent pitch');
-  meta.textContent = metaParts.join(' · ');
+  meta.textContent = `${allPitchRows.length.toLocaleString()} pitches · last ${visiblePitchRows.length} shown · ${allPitchRows.length.toLocaleString()} pitches all time`;
   stage.appendChild(meta);
   card.appendChild(stage);
   return card;
@@ -4138,6 +4190,7 @@ pitcherModeCheckbox?.addEventListener('change', () => {
   lastSelectedPitcher = '';
   updateDashboard();
 });
+exportPageBtn?.addEventListener('click', exportPageAsPng);
 
 /*
  * LEGACY event listeners:
